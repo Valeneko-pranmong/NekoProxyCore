@@ -1,16 +1,37 @@
-# NekoProxyCore handoff
+# NekoProxyCore — handoff เริ่มจากจุดนี้
 
-สถานะ: เตรียม source และเครื่องมือตรวจ environment แล้ว แต่ baseline build
-ยังถูกบล็อกด้วย build dependencies ที่ยังไม่ได้ติดตั้ง
+อัปเดต: 2026-08-01 · branch งาน: `feature/neko-headless` · baseline ที่ห้ามแก้:
+`baseline/netch-1.9.7` (`99480e99c3f5f4b0f6c4a32fdbbb4911be2a3687`)
 
-## เริ่มต้นตรงนี้
+## สถานะจริงของรอบนี้
 
-อ่านและทำตามลำดับ:
+Phase 2B, lifecycle seam ต้นทางของ 2C และ concrete process resolver (Step C)
+ถูกเพิ่มแล้ว แต่ยัง **ไม่ใช่**
+headless runtime ที่เชื่อมกับ Netch/driver จริง และยังไม่มี `NekoProxyCore.exe`
+สำหรับ release.
 
-1. อ่านเอกสารนี้จนจบ
-2. อ่าน [NEKOPROXYCORE_BUILD_PLAN.md](NEKOPROXYCORE_BUILD_PLAN.md)
-3. รัน [neko-proxycore-preflight.ps1](neko-proxycore-preflight.ps1)
-4. ห้ามแก้ source หรือรายงานว่า build พร้อม หาก preflight ยังมี `FAIL`
+- เพิ่ม assembly ที่ไม่มี WinForms: `NekoProxyCore.Core/`
+- มี `ProxyConfiguration`, `ProxyStartRequest`, `ProxyStatusKind`, `ProxyError`,
+  `IProxyRuntime`, `IProxyStatusSink`, `IProcessResolver` และ
+  `ProcessModeController`
+- `HeadlessRuntimeCoordinator` มี start/stop/status, idempotent start/stop,
+  cancellation, timeout และ typed/sanitized error
+- Unit tests ใช้ fake process resolver/engine และ fixture identifier ที่ไม่มี
+  credential; รวม resolver tests แล้วผ่าน `16/16`
+- เพิ่ม concrete `NekoProxyCore.Windows/WindowsProcessResolver.cs` ที่ใช้
+  `Process.Exited`/process handle และรองรับ cancellation แล้ว
+- ยังไม่มี legacy Netch engine adapter, IPC, headless host หรือ network/driver
+  integration test
+
+ทีมถัดไปให้เริ่มที่ **Step D — Legacy ProcessMode engine adapter** ใน
+`tools/REFACTOR_HANDOFF.md`; ห้ามประกาศว่า runtime เชื่อม redirector จริงจนกว่า
+adapter และ sanitized PSO2 integration test จะผ่าน
+
+รายละเอียด contract, tests, build evidence และงานถัดไปอยู่ใน
+[REFACTOR_HANDOFF.md](REFACTOR_HANDOFF.md) ให้ถือเอกสารนั้นเป็น source of truth
+สำหรับ Phase 2
+
+## เริ่มงานอย่างปลอดภัย
 
 ```powershell
 Set-Location F:\Github\NekoProxyCore
@@ -20,101 +41,83 @@ git log -1 --oneline
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\tools\neko-proxycore-preflight.ps1
+
+dotnet build .\NekoProxyCore.Core\NekoProxyCore.Core.csproj -c Release --no-restore
+dotnet build .\NekoProxyCore.Windows\NekoProxyCore.Windows.csproj -c Release --no-restore
+dotnet test .\Tests\Tests.csproj -c Release --no-restore
 ```
 
-สำหรับ AI/CI:
+Preflight ล่าสุด: `PASS=34, WARN=3, FAIL=0` (exit code `2` เพราะ warning)
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File .\tools\neko-proxycore-preflight.ps1 `
-  -AsJson
-```
+Warnings ที่ต้องรักษาไว้ในรายงาน:
 
-Exit code:
+1. worktree ยังมีงาน handoff และ Phase 2 ที่ยังไม่ commit — ตรวจ diff และอย่า
+   discard งานของผู้ใช้
+2. ไม่มี `wpcap.dll`/`Packet.dll`; ยอมรับได้เฉพาะ ProcessMode, ไม่พอสำหรับ
+   PcapMode
+3. `build.ps1` ดาวน์โหลด GeoLite2 โดยไม่มี URL/checksum ที่ pin แล้ว; artifact
+   ใด ๆ จึงไม่ใช่ reproducible/release-grade
 
-- `0`: พร้อมเริ่มงาน
-- `2`: มี warning ที่ต้องอ่าน แต่ไม่มี required blocker
-- `1`: มี required blocker ให้หยุดก่อน
+### อย่าสับสนกับ warning จาก `dotnet build Netch.sln`
 
-## Git contract
+`WARN=3` ข้างต้นคือผลจาก **preflight** เท่านั้น ส่วนภาพ build ล่าสุดมี warning
+อีกชุดหนึ่งที่เป็นคนละ gate:
 
-- Repository: `Valeneko-pranmong/NekoProxyCore`
-- Branch พัฒนา: `feature/neko-headless`
-- Branch อ้างอิง ห้ามแก้: `baseline/netch-1.9.7`
-- Netch 1.9.7 pinned commit:
-  `99480e99c3f5f4b0f6c4a32fdbbb4911be2a3687`
-- `main` ใช้ติดตาม upstream เท่านั้น ห้ามใช้เป็นฐาน MVP โดยไม่ทำ compatibility
-  review
-- ก่อนแก้ไฟล์ทุกครั้งต้องอ่าน `git status` และรักษางานที่มีอยู่ของผู้ใช้
+- `NETSDK1138` — `net6.0-windows` ของ Netch อยู่นอก support policy แล้ว
+- `NU1503` สองรายการ — NuGet ข้าม restore ให้ `Redirector.vcxproj` และ
+  `RouteHelper.vcxproj` เพราะเป็น C++ project
 
-ตรวจว่า HEAD ยังสืบสายจาก baseline:
+ภาพเดียวกันมี `MSB4278` เป็น **error** 7 รายการ ไม่ใช่ WARN: `dotnet build` ไม่ได้
+ตั้งค่า `VCTargetsPath` ให้ C++ project แม้ไฟล์
+`C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Microsoft\VC\v170\Microsoft.Cpp.Default.props`
+มีอยู่จริง (`Test-Path=True`)
 
-```powershell
-git merge-base --is-ancestor `
-  99480e99c3f5f4b0f6c4a32fdbbb4911be2a3687 HEAD
-if ($LASTEXITCODE -ne 0) { throw 'HEAD is not based on Netch 1.9.7' }
-```
+ตัว preflight หา Go ที่ `C:\Program Files\Go\bin\go.exe` ได้แม้ไม่ได้อยู่ใน
+`PATH` แล้ว แต่ Go ที่พบคือ `1.26.5`; source `Other/aiodns` เก่าต้องใช้ Go
+ก่อน 1.20 เมื่อต้อง rebuild helper นั้น
 
-## Product contract
+## ข้อห้ามและขอบเขต
 
-- NekoLauncher เป็น UI และ System Tray เพียงตัวเดียว
-- หลังพบเกม NekoProxyCore ต้องเริ่มแบบไม่มี WinForms, console, tray, balloon
-  หรือ notification เพิ่มเติม
-- ห้ามใช้ window hider, polling watcher หรือ hidden desktop เป็นคำตอบถาวร
-- ห้ามเปลี่ยนสถานะหน้าต่างหรือ tray ของ NekoLauncher
-- รักษา PSO2 `ProcessMode` เป็น MVP ก่อนพิจารณา TunMode
-- ป้องกัน password ระดับพื้นฐาน: ไม่เก็บ plaintext, ไม่ส่งผ่าน command line
-  และไม่เขียนลง log
-- ห้ามฝัง credential จริง, log, dump, private key หรือ settings ของผู้ใช้ใน
-  source/build artifact
+- `NekoLauncher` เป็น UI/system tray เดียว; core ห้ามสร้าง WinForms, console,
+  tray, balloon หรือ notification
+- ProcessMode ของ PSO2 คือ MVP; ห้ามขยายไป TunMode/PcapMode ก่อน contract นี้
+  เชื่อมกับ engine จริงและผ่าน integration test
+- ห้ามส่งหรือบันทึก password/token/private key ผ่าน argv, source, fixture,
+  log, dump หรือ artifact
+- `ProxyConfiguration` รับเฉพาะ opaque identifier ที่ปลอดภัย; อย่าเปลี่ยนให้รับ
+  URI หรือ credential เพื่อเชื่อม legacy code แบบลัด
+- core assembly ห้ามอ้าง `Global.MainForm`, `System.Windows.Forms`, message box,
+  `Invoke` หรือ `BeginInvoke`; UI adapter อยู่ฝั่ง host/launcher เท่านั้น
+- ห้ามแก้ `baseline/netch-1.9.7` หรือใช้ `main` เป็น compatibility base
 
-## สถานะที่ยืนยันแล้ว
+## ข้อจำกัด build ที่ยังเปิดอยู่
 
-- Fork และ branch baseline/feature มีอยู่แล้ว
-- Feature branch สืบสายจาก Netch 1.9.7
-- Source files, native projects, driver และ runtime inputs หลักมีอยู่
-- Preflight รองรับ human-readable output และ JSON
-- PowerShell parser และ JSON parsing ผ่าน
-- ยังไม่ได้ refactor network engine เป็น headless
-- ยังไม่ได้ build baseline จาก source บนเครื่องนี้
+คำสั่ง `dotnet build Netch.sln -c Release` ไม่ใช่ build gate ที่ถูกต้องสำหรับ
+C++ projects ของ solution นี้ ภาพล่าสุดจบที่ `Build failed with 7 error(s) and
+3 warning(s)` แต่ `NekoProxyCore.Core` ยัง build สำเร็จแยกต่างหาก
 
-## Required blockers ปัจจุบัน
+Visual Studio MSBuild ที่ตรวจพบ (17.14.51) build native
+`Redirector.bin` และ `RouteHelper.bin` ได้เมื่อเรียกผ่าน environment ที่ถูกต้อง
+แต่ solution ทั้งชุดยังล้มเพราะ:
 
-ต้องติดตั้งและตรวจใหม่:
+- หา `Microsoft.NET.Sdk` ไม่พบใน Visual Studio MSBuild installation
+- `RedirectorTester` ขาด .NET Framework 4.8 targeting pack แบบ exact
 
-1. .NET SDK ที่ build `net6.0-windows` ได้
-2. Visual Studio Build Tools 2022 พร้อม MSBuild
-3. Desktop development with C++ / MSVC x64-x86
-4. Windows 10 หรือ Windows 11 SDK
-5. Go toolchain ที่เข้ากันกับ `Other/aiodns/go.mod` (`go 1.17`)
+การแก้ `VCTargetsPath` ชั่วคราวทำให้ C++ props ถูกพบ แต่เมื่อเรียกผ่าน dotnet SDK
+จะเจอ `MSB8003` (`VCToolsInstallDir` ไม่ถูกกำหนด) และ `MSB4018` จาก
+`Microsoft.Build.Utilities.CanonicalTrackedOutputFiles`; จึงต้องใช้ Visual Studio
+Developer environment/real MSBuild และตรวจ SDK/targeting pack ให้ครบ ไม่ใช่
+แก้ source project เพื่อหลบ error
 
-Npcap เป็น optional สำหรับ MVP ProcessMode แต่ต้องมีเมื่อ build/test PcapMode
+อย่ารายงาน solution/release build ว่าผ่านจนกว่าจะแก้สองข้อข้างต้นและบันทึก
+คำสั่ง, tool versions, artifact path และ SHA-256 ใหม่
 
-การติดตั้ง dependency เป็นการเปลี่ยนระดับเครื่อง ต้องได้รับอนุญาตจากผู้ใช้ก่อน
-AI ห้ามติดตั้งอัตโนมัติจากเอกสารนี้
-
-## งานถัดไป
-
-หลังผู้ใช้อนุมัติและติดตั้ง dependencies:
-
-1. รัน preflight ซ้ำจน required checks ไม่มี `FAIL`
-2. switch ไป `baseline/netch-1.9.7` และ build ต้นฉบับโดยไม่แก้ source
-3. บันทึก tool versions, build command, artifact path และผลล้มเหลว/สำเร็จ
-4. smoke test Netch baseline กับ PSO2 profile ที่ไม่มี credential จริง
-5. กลับ `feature/neko-headless` ก่อนเริ่ม refactor
-6. เริ่ม Phase 2 จากการแยก status/configuration ออกจาก `Global.MainForm`
-
-อย่าข้าม baseline build เพราะหาก refactor แล้ว network มีปัญหา จะไม่สามารถแยกได้
-ว่าเกิดจาก environment เดิมหรือการเปลี่ยน headless
-
-## ไฟล์ส่งไม้ต่อ
+## ไฟล์ handoff
 
 ```text
 tools/
-├─ HANDOFF.md
-├─ NEKOPROXYCORE_BUILD_PLAN.md
+├─ HANDOFF.md                  # หน้านี้: entry point และ hard gates
+├─ REFACTOR_HANDOFF.md         # Phase 2 checkpoint และ flow ที่ต้องทำต่อ
+├─ NEKOPROXYCORE_BUILD_PLAN.md # แผนผลิตภัณฑ์/build ระยะยาว
 └─ neko-proxycore-preflight.ps1
 ```
-
-ทั้งสามไฟล์ต้องถูก commit บน `feature/neko-headless` และ worktree ต้องสะอาดก่อน
-ส่งต่อให้ AI/นักพัฒนาคนถัดไป

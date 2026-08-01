@@ -274,8 +274,14 @@ else {
 }
 
 $goPath = Get-ExecutablePath 'go'
+if ($null -eq $goPath) {
+    $defaultGoPath = Join-Path $env:ProgramFiles 'Go\bin\go.exe'
+    if (Test-Path -LiteralPath $defaultGoPath) {
+        $goPath = (Resolve-Path -LiteralPath $defaultGoPath).Path
+    }
+}
 if ($null -ne $goPath) {
-    $goVersion = & go version 2>$null
+    $goVersion = & $goPath version 2>$null
     Add-Result 'Go toolchain' 'PASS' "$goPath ($goVersion)"
 }
 else {
