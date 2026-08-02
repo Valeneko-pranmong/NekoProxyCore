@@ -1,15 +1,15 @@
 # NekoProxyCore — handoff เริ่มจากจุดนี้
 
-อัปเดต: 2026-08-01 · branch งาน: `feature/neko-headless` · baseline ที่ห้ามแก้:
+อัปเดต: 2026-08-02 · branch งาน: `feature/neko-headless` · baseline ที่ห้ามแก้:
 `baseline/netch-1.9.7` (`99480e99c3f5f4b0f6c4a32fdbbb4911be2a3687`)
 
 ## สถานะจริงของรอบนี้
 
 Phase 2B, lifecycle seam ต้นทางของ 2C, concrete process resolver (Step C) และ
-source implementation ของ Step D ถูกเพิ่มแล้ว แต่ Step D ยัง **ไม่ผ่าน build/test
-verification ใน worktree ปัจจุบัน** เพราะ shell นี้ไม่พบ .NET SDK/MSBuild. จึงยัง
-ไม่ใช่ headless runtime ที่ยืนยันการเชื่อมกับ Netch/driver จริง และยังไม่มี
-`NekoProxyCore.exe` สำหรับ release.
+source implementation ของ Step D ถูกเพิ่มแล้ว โดย Step D ผ่าน build และ contract-test
+verification ใน worktree นี้แล้ว. อย่างไรก็ตาม ยัง **ไม่ใช่** headless runtime ที่ยืนยัน
+การเชื่อมกับ Netch/driver/traffic จริง เพราะ sanitized PSO2 ProcessMode integration test
+ยังรอ PSO2 ที่กำลังทำงาน และยังไม่มี `NekoProxyCore.exe` สำหรับ release.
 
 - เพิ่ม assembly ที่ไม่มี WinForms: `NekoProxyCore.Core/`
 - มี `ProxyConfiguration`, `ProxyStartRequest`, `ProxyStatusKind`, `ProxyError`,
@@ -18,18 +18,19 @@ verification ใน worktree ปัจจุบัน** เพราะ shell �
 - `HeadlessRuntimeCoordinator` มี start/stop/status, idempotent start/stop,
   cancellation, timeout และ typed/sanitized error
 - Unit tests ใช้ fake process resolver/engine และ fixture identifier ที่ไม่มี
-  credential; รวม resolver tests แล้วผ่าน `16/16`
+  credential; รวม legacy lifecycle และ integration packaging tests แล้วผ่าน `23/23`
 - เพิ่ม concrete `NekoProxyCore.Windows/WindowsProcessResolver.cs` ที่ใช้
   `Process.Exited`/process handle และรองรับ cancellation แล้ว
 - เพิ่ม `NekoProxyCore.Legacy/` และ `NetchProcessModeEngine` พร้อม runtime-only
   `profile-N`/`server-N` mapping, typed status sink และ fake lifecycle tests
 - `MainController`/`NFController` เริ่มใช้ injected `IProxyStatusSink`; UI callback
   อยู่ใน `MainFormProxyStatusSink` แทนการเรียกจาก controller
-- ยังไม่มี IPC, headless host หรือ sanitized PSO2/network-driver integration test
+- เพิ่ม official sanitized integration runner/launcher แล้ว แต่ยังไม่มี IPC หรือผล
+  PSO2/network-driver integration จริงจนกว่าจะรันกับ target process ที่อนุมัติ
 
-ทีมถัดไปให้ปิด **Step D verification** ใน `tools/REFACTOR_HANDOFF.md` ก่อนเริ่ม
-Step E; ห้ามประกาศว่า runtime เชื่อม redirector จริงจนกว่า adapter build/test และ
-sanitized PSO2 integration test จะผ่าน
+ทีม Tester ให้ใช้ [TESTER_HANDOFF.md](TESTER_HANDOFF.md) เป็น source of truth สำหรับ
+คำสั่ง build/test, official runner, exit codes และเกณฑ์ PASS/FAIL/BLOCKED ส่วนทีมพัฒนา
+ให้ใช้ [REFACTOR_HANDOFF.md](REFACTOR_HANDOFF.md) เป็น checkpoint ของ Phase 2
 
 รายละเอียด contract, tests, build evidence และงานถัดไปอยู่ใน
 [REFACTOR_HANDOFF.md](REFACTOR_HANDOFF.md) ให้ถือเอกสารนั้นเป็น source of truth
@@ -38,7 +39,7 @@ sanitized PSO2 integration test จะผ่าน
 ## เริ่มงานอย่างปลอดภัย
 
 ```powershell
-Set-Location F:\Github\NekoProxyCore
+Set-Location D:\NekoProxyCore
 git status -sb
 git branch --show-current
 git log -1 --oneline
@@ -49,8 +50,18 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 dotnet restore .\Tests\Tests.csproj
 dotnet build .\NekoProxyCore.Core\NekoProxyCore.Core.csproj -c Release --no-restore
 dotnet build .\NekoProxyCore.Windows\NekoProxyCore.Windows.csproj -c Release --no-restore
-dotnet build .\NekoProxyCore.Legacy\NekoProxyCore.Legacy.csproj -c Release --no-restore
 dotnet test .\Tests\Tests.csproj -c Release --no-restore
+```
+
+Build `NekoProxyCore.Legacy` ทั้งสอง target ต้องใช้ x64 Visual Studio Developer
+environment (MSBuild `17.14.51` ที่ยืนยันแล้ว), โดยตั้ง
+`MSBuildSDKsPath=C:\Program Files\dotnet\sdk\6.0.428\Sdks` และ
+`MSBuildEnableWorkloadResolver=false` เฉพาะ command นั้น แล้วรัน:
+
+```powershell
+& 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe' `
+  .\NekoProxyCore.Legacy\NekoProxyCore.Legacy.csproj /m `
+  /p:Configuration=Release /p:Platform=x64 /verbosity:minimal
 ```
 
 Preflight ล่าสุด: `PASS=34, WARN=3, FAIL=0` (exit code `2` เพราะ warning)
@@ -125,5 +136,7 @@ tools/
 ├─ HANDOFF.md                  # หน้านี้: entry point และ hard gates
 ├─ REFACTOR_HANDOFF.md         # Phase 2 checkpoint และ flow ที่ต้องทำต่อ
 ├─ NEKOPROXYCORE_BUILD_PLAN.md # แผนผลิตภัณฑ์/build ระยะยาว
-└─ neko-proxycore-preflight.ps1
+├─ TESTER_HANDOFF.md           # ขั้นตอน build, contract test และ integration gate สำหรับทีม Tester
+├─ neko-proxycore-preflight.ps1
+└─ run-processmode-integration.ps1 # official sanitized integration launcher
 ```

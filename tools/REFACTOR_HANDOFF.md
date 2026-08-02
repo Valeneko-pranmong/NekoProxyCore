@@ -10,20 +10,19 @@ product contract ด้านล่างก่อนเปลี่ยน netwo
 
 | รายการ | ค่า |
 |---|---|
-| Workspace | `F:\Github\NekoProxyCore` |
+| Workspace | `D:\NekoProxyCore` |
 | Branch งาน | `feature/neko-headless` |
-| HEAD ปัจจุบัน | `10505d3763a6a5eed8d587b6d3527f8cd495815c` (`10505d3 docs: add NekoProxyCore handoff tooling`) |
+| HEAD ปัจจุบัน | `fda4dec9715a4e9693fc53e558944c44cf5caf9f` (`fda4dec Implement Step D ProcessMode adapter`) |
 | Baseline ที่ pin | `baseline/netch-1.9.7` / `99480e99c3f5f4b0f6c4a32fdbbb4911be2a3687` |
 | Remote | `origin=Valeneko-pranmong/NekoProxyCore`, `upstream=netchx/netch` |
-| Preflight ล่าสุด | `PASS=34, WARN=3, FAIL=0` |
+| Preflight ล่าสุด | `PASS=34, WARN=3, FAIL=0` (exit `2` จาก warning เท่านั้น) |
 | Core build | `NekoProxyCore.Core` Release ผ่าน, 0 warnings |
-| Contract tests | `dotnet test Tests/Tests.csproj -c Release --no-restore`: 16 passed |
+| Contract/lifecycle + integration packaging tests | `dotnet test Tests/Tests.csproj -c Release --no-restore`: 23 passed |
 | Windows adapter build | `NekoProxyCore.Windows` Release ผ่าน, 0 warnings |
 
-> สถานะ worktree วันที่ 2026-08-02: มี implementation ของ Step D เพิ่มแล้ว แต่ยัง
-> **ไม่ได้ยืนยัน build/test ในเครื่องนี้** เพราะ shell ปัจจุบันไม่พบ .NET SDK/MSBuild.
-> หลักฐาน build/test ในตารางข้างต้นเป็นของ checkpoint ก่อน Step D เท่านั้น
-> และยังไม่ใช่ PSO2/redirector integration test จริง.
+> สถานะ worktree วันที่ 2026-08-02: Step D ผ่าน build และ contract-test verification
+> ตามหลักฐานด้านล่างแล้ว แต่ยัง **ไม่ใช่** PSO2/redirector integration test จริง.
+> ห้ามเริ่ม Step E หรืออ้างว่า redirector ส่ง traffic ได้จนกว่าจะปิด integration gate.
 
 Worktree ใน checkpoint นี้ยังไม่สะอาดโดยตั้งใจ: มี `NekoProxyCore.Core/`,
 `NekoProxyCore.Windows/`, `Tests/HeadlessRuntimeTests.cs`, `Netch.sln`,
@@ -36,7 +35,7 @@ Worktree ใน checkpoint นี้ยังไม่สะอาดโดย�
 
 | Tool | ผลที่พบ |
 |---|---|
-| .NET SDK ที่ shell เลือก | `9.0.316`; มี .NET 6 SDK/runtime สำหรับ `net6.0` |
+| .NET SDK ที่ใช้ยืนยัน | `6.0.428` ที่ `C:\Program Files\dotnet\dotnet.exe` (ต้องเติม PATH ใน shell นี้) |
 | Core target | `net6.0` (ไม่มี `-windows`, ไม่มี WinForms reference) |
 | Visual Studio MSBuild | `17.14.51` |
 | Go ที่ preflight พบ | `C:\Program Files\Go\bin\go.exe`, `go1.26.5` |
@@ -125,9 +124,9 @@ flowchart TD
     A["Preflight and inspect dirty worktree"] --> B["Build Core and run contract tests"]
     B --> C["Freeze and commit Phase 2B checkpoint"]
     C --> D["Create concrete Windows IProcessResolver (done)"]
-    D --> E["Create legacy ProcessMode engine adapter outside Core (next)"]
-    E --> F["Wire headless host to coordinator and status sink"]
-    F --> G["Run sanitized PSO2 ProcessMode integration tests"]
+    D --> E["Create legacy ProcessMode engine adapter outside Core (done)"]
+    E --> F["Publish official sanitized integration runner (done)"]
+    F --> G["Run sanitized PSO2 ProcessMode integration gate (next)"]
     G --> H["Remove UI callbacks from the runtime path"]
     H --> I["Build/package only after native build gates pass"]
 ```
@@ -135,7 +134,7 @@ flowchart TD
 ### Step A — Gate ก่อนแก้
 
 ```powershell
-Set-Location F:\Github\NekoProxyCore
+Set-Location D:\NekoProxyCore
 git status -sb
 git merge-base --is-ancestor 99480e99c3f5f4b0f6c4a32fdbbb4911be2a3687 HEAD
 if ($LASTEXITCODE -ne 0) { throw 'HEAD is not based on Netch 1.9.7' }
@@ -202,6 +201,41 @@ safe process-name validation ผลทดสอบ resolver อยู่ใน�
 สิ่งที่ยังห้ามประกาศ: **ยังไม่ยืนยัน** ว่า `ProcessModeController` เริ่ม redirector
 หรือส่ง traffic จริงได้ จนกว่าจะผ่าน build/test และ sanitized PSO2 integration test.
 
+#### หลักฐาน verification ของ Step D (2026-08-02)
+
+- preflight (หลังมี verification changes): `PASS=34, WARN=3, FAIL=0`, exit `2`
+  จาก warning เท่านั้น ได้แก่ worktree ที่ตั้งใจแก้, ไม่มี Npcap สำหรับ PcapMode และ
+  GeoLite2 download ที่ยังไม่ reproducible
+- `dotnet` `6.0.428`: build `NekoProxyCore.Core` และ `NekoProxyCore.Windows`
+  แบบ Release ผ่านโดยไม่มี warning; `dotnet test Tests/Tests.csproj -c Release
+  --no-restore` ผ่าน `23/23` (warning `SYSLIB0021` มีอยู่เดิมใน `Tests/Global.cs`)
+- Visual Studio Developer environment / MSBuild `17.14.51` build
+  `NekoProxyCore.Legacy/NekoProxyCore.Legacy.csproj` ด้วย `Configuration=Release`,
+  `Platform=x64` ผ่านทั้ง `net6.0` และ `net6.0-windows`; เพื่อให้ MSBuild พบ SDK ที่
+ ติดตั้งแยกต่างหาก ต้องตั้ง `MSBuildSDKsPath=C:\Program Files\dotnet\sdk\6.0.428\Sdks`
+  และ `MSBuildEnableWorkloadResolver=false` เฉพาะ command นี้
+- SHA-256 ของ development DLL ที่ได้:
+  - `NekoProxyCore.Core/bin/Release/net6.0/NekoProxyCore.Core.dll` —
+    `EBEE3D4EDCDA87752A8132B8733CE47361C7008824FD58A97F1B2196C46040E7`
+  - `NekoProxyCore.Windows/bin/Release/net6.0/NekoProxyCore.Windows.dll` —
+    `F723A74C29D2C1F801169C3DC21E32BD03A83D67321CF645DAC4DF5EED077C90`
+  - `NekoProxyCore.Legacy/bin/x64/Release/net6.0/NekoProxyCore.Legacy.dll` —
+    `B10C07A6A43AD8F734DFC273EBE91BE86F34D14950BEB14AD33BB68471BBB116`
+  - `NekoProxyCore.Legacy/bin/x64/Release/net6.0-windows/NekoProxyCore.Legacy.dll` —
+    `57BA019C56D6A1DF4217511978106F18E6E5379B0AA14EDB69F8331C9CAD370D`
+
+PSO2 integration ยังเป็น blocker: เครื่องนี้มี `netfilter2` driver ทำงานอยู่ แต่ไม่พบ
+process `pso2` หรือ `pso2_bin`; จึงไม่มีทางเริ่ม→running→stop กับเกมจริงโดยไม่สร้าง
+fixture หรือส่ง credential. ต้องรัน gate นี้เมื่อมี PSO2 ที่ผู้ใช้เปิดอยู่และใช้เฉพาะ
+opaque `profile-N`/`server-N` ที่มีอยู่ใน runtime.
+
+เพิ่ม official runner ที่ `NekoProxyCore.IntegrationRunner/` และ launcher ที่
+`tools/run-processmode-integration.ps1` แล้ว โดย pin `win-x64`, stage RID-specific
+Windows runtime DLL ทุกไฟล์ใต้ `runtimes/win/lib/net6.0`, ตรวจ SHA-256 ก่อนรัน, whitelist output
+และลบ runtime mirror ใน `%TEMP%` ผ่าน `finally`. `-PrepareOnly` ผ่าน และ negative
+missing-process check คืน exit `20` โดยไม่เหลือ temporary directory. รายละเอียดการรัน
+จริงและเกณฑ์ผลลัพธ์อยู่ใน [TESTER_HANDOFF.md](TESTER_HANDOFF.md).
+
 ### Handoff ให้ทีมถัดไป — ปิด verification ของ Step D ก่อน Step E
 
 1. ติดตั้งหรือเปิด shell ที่มี .NET 6 SDK แล้วรัน `dotnet restore Tests/Tests.csproj`
@@ -209,8 +243,8 @@ safe process-name validation ผลทดสอบ resolver อยู่ใน�
    `Tests/Tests.csproj`
 2. ยืนยันว่า legacy Windows target build ได้ใน Visual Studio developer environment
    โดยไม่แก้ PcapController/TUNController เพื่อหลบ build error
-3. รัน sanitized PSO2 ProcessMode start → running → stop integration test โดยไม่มี
-   credential ใน fixture, argv หรือ log
+3. รัน `tools/run-processmode-integration.ps1 -PrepareOnly` แล้วใช้ official launcher
+   รัน sanitized PSO2 ProcessMode start → running → stop โดยไม่มี credential ใน argv/log
 4. บันทึก command, tool version, test result และ artifact hash ใหม่ก่อนเริ่ม Step E
 
 Stop condition: หากต้องเพิ่ม `Global.MainForm`, WinForms, MessageBox, tray,
@@ -250,7 +284,7 @@ console หรือส่ง secret ผ่าน argv/log ให้หยุด
 และไม่ควรกลบ warning ใดด้วยการ suppress ก่อนมีแผน upgrade target framework
 หรือ build C++ ที่ถูกต้อง
 
-### ผ่าน
+### ผ่าน — managed/adapter/integration-runner preparation
 
 ```text
 dotnet build NekoProxyCore.Core/NekoProxyCore.Core.csproj -c Release --no-restore
@@ -260,66 +294,39 @@ dotnet build NekoProxyCore.Windows/NekoProxyCore.Windows.csproj -c Release --no-
 Build succeeded. 0 Warning(s), 0 Error(s)
 
 dotnet test Tests/Tests.csproj -c Release --no-restore
-Passed: 16, Failed: 0, Skipped: 0
+Passed: 23, Failed: 0, Skipped: 0
+
+powershell.exe -File tools/run-processmode-integration.ps1 -PrepareOnly
+PREPARE runtime=win-x64 windowsRuntimeAssets=verified count=3
+PREPARE_ONLY result=ready
 ```
 
 Test project ยังเตือน `SYSLIB0021` จาก `Tests/Global.cs` เดิม (`SHA1CryptoServiceProvider`)
-ไม่ใช่ warning ที่เพิ่มจาก Phase 2 core
+ไม่ใช่ warning ที่เพิ่มจาก Phase 2 core. Official runner publish อาจเตือน `MSB3277`
+เรื่อง `WindowsBase` จาก legacy dependency; RID-specific Windows DLL ทั้ง 3 ไฟล์ถูก
+stage และตรวจ SHA-256 แล้ว จึงต้องบันทึก warning ตามจริง ไม่ suppress เพื่อทำให้ผลดูสะอาด
 
-### ยังไม่ผ่าน — legacy solution build
+`NekoProxyCore.Legacy/NekoProxyCore.Legacy.csproj` build ผ่านทั้ง `net6.0` และ
+`net6.0-windows` ด้วย Visual Studio MSBuild `17.14.51`, `Configuration=Release`,
+`Platform=x64` ตาม command ในหัวข้อ Step D และ [TESTER_HANDOFF.md](TESTER_HANDOFF.md).
 
-คำสั่งจากภาพที่ลอง:
+### ยังไม่ผ่าน — full legacy solution/release build
 
-```powershell
-dotnet build .\Netch.sln -c Release
-```
-
-ผลคือ `NekoProxyCore.Core` build สำเร็จ แต่ solution ล้มด้วย `7 error(s)` และ
-`3 warning(s)`. Error หลักคือ `MSB4278` ที่หา
-`$(VCTargetsPath)\Microsoft.Cpp.Default.props` ไม่พบ
-
-ตรวจซ้ำแล้วไฟล์มีอยู่จริง:
-
-```powershell
-Test-Path 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Microsoft\VC\v170\Microsoft.Cpp.Default.props'
-# True
-```
-
-จึงสรุปได้ว่าเป็น environment/driver mismatch ของ dotnet CLI ไม่ใช่ไฟล์ C++
-workload หาย
-
-คำสั่ง Visual Studio MSBuild ที่ลอง:
-
-```powershell
-& 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe' `
-  .\Netch.sln /m /p:Configuration=Release /p:Platform=x64 /verbosity:minimal
-```
-
-ผล:
-
-- `RouteHelper.vcxproj` และ `Redirector.vcxproj` สร้าง `RouteHelper.bin` /
-  `Redirector.bin` ได้
-- Visual Studio MSBuild หา `Microsoft.NET.Sdk` ไม่พบ
-- `RedirectorTester` หา reference assemblies ของ `.NETFramework,Version=v4.8`
-  ไม่พบ
-
-เมื่อตั้ง `VCTargetsPath` แล้วเรียกผ่าน dotnet SDK จะเปลี่ยนเป็น warning
-`MSB8003` (`VCToolsInstallDir` ไม่ถูกกำหนด) และ error `MSB4018`
-`CanonicalTrackedOutputFiles` ซึ่งยังยืนยันว่าต้องใช้ Developer environment ของ
-Visual Studio/real MSBuild และแก้ managed targeting pack ก่อน
-
-ห้ามแก้ source baseline เพื่อเลี่ยง blocker นี้ และห้ามเรียก output ใด ๆ ว่า release
-artifact หรือ reproducible build
+`dotnet build .\Netch.sln -c Release` ยังไม่ใช่ gate ที่ผ่าน: dotnet CLI ไม่ได้ตั้ง
+Visual C++ environment (`VCTargetsPath`/`VCToolsInstallDir`) และ full solution ยังมี
+ข้อจำกัด `.NET Framework 4.8` targeting pack. Visual Studio MSBuild สร้าง
+`RouteHelper.bin`/`Redirector.bin` ได้ แต่ยังห้ามเรียก full solution output ว่า clean,
+reproducible หรือ release-grade. ข้อจำกัดนี้ไม่เปลี่ยนผลว่า Legacy adapter project build
+ผ่านแล้ว และไม่ควรถูกใช้ย้อนสถานะ Step D managed verification
 
 ### Artifact boundary
 
-มีเพียง development DLL ที่ถูก ignore:
-`NekoProxyCore.Core/bin/Release/net6.0/NekoProxyCore.Core.dll` และ
-`NekoProxyCore.Windows/bin/Release/net6.0/NekoProxyCore.Windows.dll`
-ไม่มี checksum/release manifest
+development artifacts ที่ตรวจแล้วมี Core, Windows, Legacy ทั้งสอง target และ official
+integration runner `win-x64`; SHA-256 ของ DLL หลักอยู่ในหัวข้อหลักฐาน verification ของ
+Step D ด้านบน. Artifact เหล่านี้ถูก ignore และไม่ถูก commit
 
-ยังไม่มี `NekoProxyCore.exe`, package, signing, SHA-256 manifest หรือ clean-machine
-evidence
+ยังไม่มี production `NekoProxyCore.exe`, package, signing, SHA-256 release manifest,
+clean-machine evidence หรือ PSO2 target-traffic PASS ดังนั้นยังห้ามเริ่ม Step E/release
 
 ## 6. Acceptance checklist สำหรับ handoff รอบหน้า
 
@@ -330,10 +337,11 @@ evidence
 - [x] invalid config, repeated start/stop, process exit, timeout, cancellation และ
   redaction มี typed contract test
 - [x] concrete process resolver แบบ event/handle-based
-- [ ] legacy ProcessMode adapter source เพิ่มแล้ว; รอ build/test และ sanitized PSO2
-  integration test เพื่อยืนยันว่าเรียก redirector จริงโดยไม่พา UI เข้าสู่ core
+- [x] legacy ProcessMode adapter build ได้ทั้งสอง target และ fake lifecycle contract
+  tests ผ่านโดยไม่พา UI เข้าสู่ core
+- [ ] sanitized PSO2 ProcessMode start → running → stop integration test เพื่อยืนยันว่า
+  เรียก redirector จริง
 - [ ] headless host executable และ launcher adapter/IPC
-- [ ] sanitized PSO2 ProcessMode start → running → stop integration test จริง
 - [ ] ตัด `Global.MainForm` และ UI callback ออกจาก runtime path จริง
 - [ ] full native/managed build ผ่าน พร้อม tool versions/artifact SHA-256
 - [ ] PcapMode/TunMode (นอก MVP) และ production package/release gates

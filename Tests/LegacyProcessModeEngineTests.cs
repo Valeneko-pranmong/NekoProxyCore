@@ -64,7 +64,17 @@ public sealed class LegacyProcessModeEngineTests
         await session.StartEntered.Task.WaitAsync(TimeSpan.FromSeconds(1));
         cancellation.Cancel();
 
-        await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => starting);
+        try
+        {
+            await starting;
+            Assert.Fail("Cancelled startup must propagate an OperationCanceledException.");
+        }
+        catch (OperationCanceledException)
+        {
+            // TaskCanceledException is an OperationCanceledException and is a valid
+            // cancellation result from Task-based legacy adapters.
+        }
+
         Assert.AreEqual(1, session.StopCount);
     }
 
