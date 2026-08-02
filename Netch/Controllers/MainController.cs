@@ -133,6 +133,7 @@ public static class MainController
         catch (Exception e)
         {
             Log.Error(e, "MainController Stop Error");
+            throw;
         }
 
         ServerController = null;
@@ -183,12 +184,12 @@ public static class MainController
         return Socks5ServerTestUtils.DiscoveryNatTypeAsync(Socks5Server, ctx);
     }
 
-    public static Task<int?> HttpConnectAsync(CancellationToken ctx = default)
+    public static async Task<int?> HttpConnectAsync(CancellationToken ctx = default)
     {
         Debug.Assert(Socks5Server != null, nameof(Socks5Server) + " != null");
         try
         {
-            return Socks5ServerTestUtils.HttpConnectAsync(Socks5Server, ctx);
+            return await Socks5ServerTestUtils.HttpConnectAsync(Socks5Server, ctx);
         }
         catch (OperationCanceledException)
         {
@@ -199,7 +200,7 @@ public static class MainController
             Log.Warning(e, "Unhandled Socks5ServerTestUtils.HttpConnectAsync Exception");
         }
 
-        return Task.FromResult<int?>(null);
+        return null;
     }
 
     private static void PublishStatus(IProxyStatusSink? statusSink, ProxyStatusKind status, ProxyError? error = null)

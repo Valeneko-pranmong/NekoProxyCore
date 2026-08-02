@@ -12,7 +12,7 @@ Baseline ที่ห้ามแก้: `baseline/netch-1.9.7` / `99480e99c3f5f
 - Core และ Windows adapter Release build ผ่าน 0 warnings
 - Legacy adapter build ผ่านทั้ง `net6.0` และ `net6.0-windows` ด้วย Visual Studio
   MSBuild `17.14.51`
-- Contract/lifecycle และ integration packaging tests ผ่าน `23/23`
+- Contract/lifecycle, integration packaging และ MainController regressions ผ่าน `25/25`
 
 ยังไม่ปิด Step D จนกว่าจะผ่าน sanitized PSO2 ProcessMode integration:
 
@@ -69,7 +69,7 @@ $dotnet = 'C:\Program Files\dotnet\dotnet.exe'
 & $dotnet test .\Tests\Tests.csproj -c Release --no-restore
 ```
 
-Acceptance: Core/Windows build สำเร็จ และ test result เป็น `23 passed, 0 failed`.
+Acceptance: Core/Windows build สำเร็จ และ test result เป็น `25 passed, 0 failed`.
 `SYSLIB0021` จาก `Tests\Global.cs` เป็น warning เดิมที่ไม่เกี่ยวกับ Step D
 
 ## 3. Legacy Windows-target build

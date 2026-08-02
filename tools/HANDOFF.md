@@ -18,7 +18,8 @@ verification ใน worktree นี้แล้ว. อย่างไรก็�
 - `HeadlessRuntimeCoordinator` มี start/stop/status, idempotent start/stop,
   cancellation, timeout และ typed/sanitized error
 - Unit tests ใช้ fake process resolver/engine และ fixture identifier ที่ไม่มี
-  credential; รวม legacy lifecycle และ integration packaging tests แล้วผ่าน `23/23`
+  credential; รวม legacy lifecycle, integration packaging และ MainController regression
+  tests แล้วผ่าน `25/25`
 - เพิ่ม concrete `NekoProxyCore.Windows/WindowsProcessResolver.cs` ที่ใช้
   `Process.Exited`/process handle และรองรับ cancellation แล้ว
 - เพิ่ม `NekoProxyCore.Legacy/` และ `NetchProcessModeEngine` พร้อม runtime-only

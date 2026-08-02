@@ -17,7 +17,7 @@ product contract ด้านล่างก่อนเปลี่ยน netwo
 | Remote | `origin=Valeneko-pranmong/NekoProxyCore`, `upstream=netchx/netch` |
 | Preflight ล่าสุด | `PASS=34, WARN=3, FAIL=0` (exit `2` จาก warning เท่านั้น) |
 | Core build | `NekoProxyCore.Core` Release ผ่าน, 0 warnings |
-| Contract/lifecycle + integration packaging tests | `dotnet test Tests/Tests.csproj -c Release --no-restore`: 23 passed |
+| Contract/lifecycle + integration packaging/MainController regression tests | `dotnet test Tests/Tests.csproj -c Release --no-restore`: 25 passed |
 | Windows adapter build | `NekoProxyCore.Windows` Release ผ่าน, 0 warnings |
 
 > สถานะ worktree วันที่ 2026-08-02: Step D ผ่าน build และ contract-test verification
@@ -208,7 +208,7 @@ safe process-name validation ผลทดสอบ resolver อยู่ใน�
   GeoLite2 download ที่ยังไม่ reproducible
 - `dotnet` `6.0.428`: build `NekoProxyCore.Core` และ `NekoProxyCore.Windows`
   แบบ Release ผ่านโดยไม่มี warning; `dotnet test Tests/Tests.csproj -c Release
-  --no-restore` ผ่าน `23/23` (warning `SYSLIB0021` มีอยู่เดิมใน `Tests/Global.cs`)
+  --no-restore` ผ่าน `25/25` (warning `SYSLIB0021` มีอยู่เดิมใน `Tests/Global.cs`)
 - Visual Studio Developer environment / MSBuild `17.14.51` build
   `NekoProxyCore.Legacy/NekoProxyCore.Legacy.csproj` ด้วย `Configuration=Release`,
   `Platform=x64` ผ่านทั้ง `net6.0` และ `net6.0-windows`; เพื่อให้ MSBuild พบ SDK ที่
@@ -294,7 +294,7 @@ dotnet build NekoProxyCore.Windows/NekoProxyCore.Windows.csproj -c Release --no-
 Build succeeded. 0 Warning(s), 0 Error(s)
 
 dotnet test Tests/Tests.csproj -c Release --no-restore
-Passed: 23, Failed: 0, Skipped: 0
+Passed: 25, Failed: 0, Skipped: 0
 
 powershell.exe -File tools/run-processmode-integration.ps1 -PrepareOnly
 PREPARE runtime=win-x64 windowsRuntimeAssets=verified count=3
