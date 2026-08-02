@@ -8,6 +8,7 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private ProxyStatusSnapshot _snapshot;
     private ProxyConfiguration? _activeConfiguration;
+    private CancellationTokenSource? _processExitMonitorCancellation;
 
     public HeadlessRuntimeCoordinator(
         IProxyModeController modeController,
@@ -52,6 +53,7 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
 
                 _activeConfiguration = request.Configuration;
                 Publish(ProxyStatusKind.Running, request.CorrelationId);
+                StartProcessExitMonitoring(request.Configuration, request.CorrelationId);
                 return ProxyResult.Success(ProxyStatusKind.Running, request.CorrelationId);
             }
             catch (OperationCanceledException) when (request.CancellationToken.IsCancellationRequested)
@@ -100,6 +102,7 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
                 return ProxyResult.Success(ProxyStatusKind.Stopped, _snapshot.CorrelationId);
 
             var correlationId = _snapshot.CorrelationId;
+            CancelProcessExitMonitoring();
             Publish(ProxyStatusKind.Stopping, correlationId);
             try
             {
@@ -145,6 +148,99 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
         var error = new ProxyError(code, message);
         Publish(ProxyStatusKind.Failed, correlationId, error);
         return ProxyResult.Failure(ProxyStatusKind.Failed, correlationId, error);
+    }
+
+    private void StartProcessExitMonitoring(ProxyConfiguration configuration, string correlationId)
+    {
+        CancelProcessExitMonitoring();
+        if (_modeController is not IProcessExitWatcher processExitWatcher)
+            return;
+
+        var cancellation = new CancellationTokenSource();
+        _processExitMonitorCancellation = cancellation;
+        _ = StopWhenProcessExitsAsync(processExitWatcher, configuration, correlationId, cancellation);
+    }
+
+    private async Task StopWhenProcessExitsAsync(
+        IProcessExitWatcher processExitWatcher,
+        ProxyConfiguration configuration,
+        string correlationId,
+        CancellationTokenSource cancellation)
+    {
+        try
+        {
+            await processExitWatcher.WaitForProcessExitAsync(configuration, cancellation.Token).ConfigureAwait(false);
+            if (!cancellation.IsCancellationRequested)
+                await StopAsync().ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            // Normal explicit-stop or replacement cleanup.
+        }
+        catch (ProxyRuntimeException exception)
+        {
+            await PublishMonitorFailureAsync(correlationId, exception.Code, exception.Message, cancellation).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            await PublishMonitorFailureAsync(
+                    correlationId,
+                    ProxyErrorCode.StartFailed,
+                    "Unable to observe the target process.",
+                    cancellation)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private async Task PublishMonitorFailureAsync(
+        string correlationId,
+        ProxyErrorCode code,
+        string message,
+        CancellationTokenSource cancellation)
+    {
+        if (cancellation.IsCancellationRequested)
+            return;
+
+        await _lifecycleGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (cancellation.IsCancellationRequested || !ReferenceEquals(_processExitMonitorCancellation, cancellation))
+                return;
+
+            _processExitMonitorCancellation = null;
+            var activeConfiguration = _activeConfiguration;
+            _activeConfiguration = null;
+            if (activeConfiguration != null)
+            {
+                try
+                {
+                    using var stopTimeout = new CancellationTokenSource(activeConfiguration.StopTimeout);
+                    await _modeController.StopAsync(stopTimeout.Token)
+                        .WaitAsync(activeConfiguration.StopTimeout)
+                        .ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Preserve the typed monitor failure below; best-effort cleanup must not expose legacy details.
+                }
+            }
+
+            Fail(correlationId, code, message);
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
+    }
+
+    private void CancelProcessExitMonitoring()
+    {
+        var cancellation = _processExitMonitorCancellation;
+        _processExitMonitorCancellation = null;
+        if (cancellation == null)
+            return;
+
+        cancellation.Cancel();
     }
 
     private void Publish(ProxyStatusKind status, string correlationId, ProxyError? error = null)

@@ -5,10 +5,11 @@
 
 ## สถานะจริงของรอบนี้
 
-Phase 2B, lifecycle seam ต้นทางของ 2C และ concrete process resolver (Step C)
-ถูกเพิ่มแล้ว แต่ยัง **ไม่ใช่**
-headless runtime ที่เชื่อมกับ Netch/driver จริง และยังไม่มี `NekoProxyCore.exe`
-สำหรับ release.
+Phase 2B, lifecycle seam ต้นทางของ 2C, concrete process resolver (Step C) และ
+source implementation ของ Step D ถูกเพิ่มแล้ว แต่ Step D ยัง **ไม่ผ่าน build/test
+verification ใน worktree ปัจจุบัน** เพราะ shell นี้ไม่พบ .NET SDK/MSBuild. จึงยัง
+ไม่ใช่ headless runtime ที่ยืนยันการเชื่อมกับ Netch/driver จริง และยังไม่มี
+`NekoProxyCore.exe` สำหรับ release.
 
 - เพิ่ม assembly ที่ไม่มี WinForms: `NekoProxyCore.Core/`
 - มี `ProxyConfiguration`, `ProxyStartRequest`, `ProxyStatusKind`, `ProxyError`,
@@ -20,12 +21,15 @@ headless runtime ที่เชื่อมกับ Netch/driver จริง 
   credential; รวม resolver tests แล้วผ่าน `16/16`
 - เพิ่ม concrete `NekoProxyCore.Windows/WindowsProcessResolver.cs` ที่ใช้
   `Process.Exited`/process handle และรองรับ cancellation แล้ว
-- ยังไม่มี legacy Netch engine adapter, IPC, headless host หรือ network/driver
-  integration test
+- เพิ่ม `NekoProxyCore.Legacy/` และ `NetchProcessModeEngine` พร้อม runtime-only
+  `profile-N`/`server-N` mapping, typed status sink และ fake lifecycle tests
+- `MainController`/`NFController` เริ่มใช้ injected `IProxyStatusSink`; UI callback
+  อยู่ใน `MainFormProxyStatusSink` แทนการเรียกจาก controller
+- ยังไม่มี IPC, headless host หรือ sanitized PSO2/network-driver integration test
 
-ทีมถัดไปให้เริ่มที่ **Step D — Legacy ProcessMode engine adapter** ใน
-`tools/REFACTOR_HANDOFF.md`; ห้ามประกาศว่า runtime เชื่อม redirector จริงจนกว่า
-adapter และ sanitized PSO2 integration test จะผ่าน
+ทีมถัดไปให้ปิด **Step D verification** ใน `tools/REFACTOR_HANDOFF.md` ก่อนเริ่ม
+Step E; ห้ามประกาศว่า runtime เชื่อม redirector จริงจนกว่า adapter build/test และ
+sanitized PSO2 integration test จะผ่าน
 
 รายละเอียด contract, tests, build evidence และงานถัดไปอยู่ใน
 [REFACTOR_HANDOFF.md](REFACTOR_HANDOFF.md) ให้ถือเอกสารนั้นเป็น source of truth
@@ -42,8 +46,10 @@ git log -1 --oneline
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\tools\neko-proxycore-preflight.ps1
 
+dotnet restore .\Tests\Tests.csproj
 dotnet build .\NekoProxyCore.Core\NekoProxyCore.Core.csproj -c Release --no-restore
 dotnet build .\NekoProxyCore.Windows\NekoProxyCore.Windows.csproj -c Release --no-restore
+dotnet build .\NekoProxyCore.Legacy\NekoProxyCore.Legacy.csproj -c Release --no-restore
 dotnet test .\Tests\Tests.csproj -c Release --no-restore
 ```
 

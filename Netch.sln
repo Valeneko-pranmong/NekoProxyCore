@@ -28,6 +28,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RedirectorTester", "Redirec
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NekoProxyCore.Core", "NekoProxyCore.Core\NekoProxyCore.Core.csproj", "{0C5532F5-3CDD-4530-BAA9-1DB6577D6374}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NekoProxyCore.Legacy", "NekoProxyCore.Legacy\NekoProxyCore.Legacy.csproj", "{D8467786-C5D6-4892-A6A7-26053EF4A6B9}"
+EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NekoProxyCore.Windows", "NekoProxyCore.Windows\NekoProxyCore.Windows.csproj", "{C98A1D5C-1BBE-4B38-9FD9-4A8F84195F24}"
 EndProject
 Global
@@ -56,6 +58,10 @@ Global
 		{0C5532F5-3CDD-4530-BAA9-1DB6577D6374}.Debug|x64.Build.0 = Debug|Any CPU
 		{0C5532F5-3CDD-4530-BAA9-1DB6577D6374}.Release|x64.ActiveCfg = Release|Any CPU
 		{0C5532F5-3CDD-4530-BAA9-1DB6577D6374}.Release|x64.Build.0 = Release|Any CPU
+		{D8467786-C5D6-4892-A6A7-26053EF4A6B9}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D8467786-C5D6-4892-A6A7-26053EF4A6B9}.Debug|x64.Build.0 = Debug|Any CPU
+		{D8467786-C5D6-4892-A6A7-26053EF4A6B9}.Release|x64.ActiveCfg = Release|Any CPU
+		{D8467786-C5D6-4892-A6A7-26053EF4A6B9}.Release|x64.Build.0 = Release|Any CPU
 		{C98A1D5C-1BBE-4B38-9FD9-4A8F84195F24}.Debug|x64.ActiveCfg = Debug|Any CPU
 		{C98A1D5C-1BBE-4B38-9FD9-4A8F84195F24}.Debug|x64.Build.0 = Debug|Any CPU
 		{C98A1D5C-1BBE-4B38-9FD9-4A8F84195F24}.Release|x64.ActiveCfg = Release|Any CPU

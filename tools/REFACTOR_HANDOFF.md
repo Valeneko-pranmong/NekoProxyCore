@@ -1,6 +1,6 @@
 # NekoProxyCore — Phase 2 refactor handoff
 
-อัปเดต: 2026-08-01
+อัปเดต: 2026-08-02
 
 เอกสารนี้บันทึก checkpoint ที่ตรวจแล้วสำหรับทีมถัดไปที่แยก runtime/network
 engine ออกจาก Netch WinForms เดิม ให้เริ่มจาก [HANDOFF.md](HANDOFF.md) และรักษา
@@ -19,6 +19,11 @@ product contract ด้านล่างก่อนเปลี่ยน netwo
 | Core build | `NekoProxyCore.Core` Release ผ่าน, 0 warnings |
 | Contract tests | `dotnet test Tests/Tests.csproj -c Release --no-restore`: 16 passed |
 | Windows adapter build | `NekoProxyCore.Windows` Release ผ่าน, 0 warnings |
+
+> สถานะ worktree วันที่ 2026-08-02: มี implementation ของ Step D เพิ่มแล้ว แต่ยัง
+> **ไม่ได้ยืนยัน build/test ในเครื่องนี้** เพราะ shell ปัจจุบันไม่พบ .NET SDK/MSBuild.
+> หลักฐาน build/test ในตารางข้างต้นเป็นของ checkpoint ก่อน Step D เท่านั้น
+> และยังไม่ใช่ PSO2/redirector integration test จริง.
 
 Worktree ใน checkpoint นี้ยังไม่สะอาดโดยตั้งใจ: มี `NekoProxyCore.Core/`,
 `NekoProxyCore.Windows/`, `Tests/HeadlessRuntimeTests.cs`, `Netch.sln`,
@@ -177,21 +182,36 @@ safe process-name validation ผลทดสอบ resolver อยู่ใน�
 - อย่าแตะ PcapController/TUNController ใน checkpoint เดียวกับ ProcessMode
 - adapter/host ต้องไม่สร้าง Form, MessageBox, NotifyIcon หรือ console
 
-ยังไม่มี implementation ของ Step D ใน checkpoint นี้; ห้ามประกาศว่า
-`ProcessModeController` เริ่ม redirector หรือ network proxy ได้จริง
+สถานะ worktree ปัจจุบันของ Step D:
 
-### Handoff ให้ทีมถัดไป — เริ่มที่ Step D
+1. เพิ่ม `NekoProxyCore.Legacy/` ที่ target `net6.0` สำหรับ fake adapter tests และ
+   `net6.0-windows` สำหรับ `NetchProcessModeSessionResolver` ซึ่ง reference `Netch`;
+   `NekoProxyCore.Core` ไม่ reference กลับหา legacy/Netch
+2. `NetchProcessModeEngine` implement `IProcessModeEngine` ผ่าน
+   `ILegacyProcessModeSessionResolver`/`ILegacyProcessModeSession`; object ที่อาจมี
+   credential ไม่ออกจาก assembly นี้
+3. resolver รับเฉพาะ opaque `profile-N` และ `server-N`, ตรวจว่า profile/server/mode
+   ProcessMode ใน legacy runtime ตรงกัน ก่อนเรียก `MainController` และ `NFController`
+4. `MainController`/`NFController` เปลี่ยน lifecycle status เป็น `IProxyStatusSink`;
+   `MainFormProxyStatusSink` เป็น UI adapter ฝั่ง WinForms แยกต่างหาก
+5. `HeadlessRuntimeCoordinator` monitor process exit ผ่าน `IProcessExitWatcher` และ
+   เรียก stop/cleanup โดยใช้ timeout ของ configuration
+6. เพิ่ม fake tests ครอบ typed lifecycle, generic error/redaction, cancelled startup,
+   process-exit cleanup และ monitor failure โดยไม่ใช้ PSO2/profile/credential จริง
 
-ขอบเขตที่ต้องทำต่อในรอบแรก:
+สิ่งที่ยังห้ามประกาศ: **ยังไม่ยืนยัน** ว่า `ProcessModeController` เริ่ม redirector
+หรือส่ง traffic จริงได้ จนกว่าจะผ่าน build/test และ sanitized PSO2 integration test.
 
-1. สร้าง assembly adapter ที่ reference Netch/native code ได้ แต่ไม่ถูก reference
-   กลับเข้า `NekoProxyCore.Core`
-2. Implement `IProcessModeEngine.StartAsync/StopAsync` โดยใช้ runtime-only mapping
-   จาก `ProfileReference`/`ServerReference`; ห้ามเพิ่ม credential ใน contract
-3. ครอบ redirector lifecycle และ process-exit cleanup ด้วย cancellation token
-4. เพิ่ม fake adapter tests ก่อนแตะ PSO2 จริง และยืนยันว่า error/status เป็น typed
-   ผ่าน `IProxyStatusSink`
-5. ห้ามแก้ `PcapController.cs`, `TUNController.cs` หรือทำ host/IPC ใน commit เดียวกัน
+### Handoff ให้ทีมถัดไป — ปิด verification ของ Step D ก่อน Step E
+
+1. ติดตั้งหรือเปิด shell ที่มี .NET 6 SDK แล้วรัน `dotnet restore Tests/Tests.csproj`
+   ก่อน แล้ว build `NekoProxyCore.Core`, `NekoProxyCore.Legacy` ทั้งสอง target และ
+   `Tests/Tests.csproj`
+2. ยืนยันว่า legacy Windows target build ได้ใน Visual Studio developer environment
+   โดยไม่แก้ PcapController/TUNController เพื่อหลบ build error
+3. รัน sanitized PSO2 ProcessMode start → running → stop integration test โดยไม่มี
+   credential ใน fixture, argv หรือ log
+4. บันทึก command, tool version, test result และ artifact hash ใหม่ก่อนเริ่ม Step E
 
 Stop condition: หากต้องเพิ่ม `Global.MainForm`, WinForms, MessageBox, tray,
 console หรือส่ง secret ผ่าน argv/log ให้หยุดและออกแบบ seam ใหม่ก่อน
@@ -310,7 +330,8 @@ evidence
 - [x] invalid config, repeated start/stop, process exit, timeout, cancellation และ
   redaction มี typed contract test
 - [x] concrete process resolver แบบ event/handle-based
-- [ ] legacy ProcessMode adapter ที่เรียก redirector จริงโดยไม่พา UI เข้าสู่ core
+- [ ] legacy ProcessMode adapter source เพิ่มแล้ว; รอ build/test และ sanitized PSO2
+  integration test เพื่อยืนยันว่าเรียก redirector จริงโดยไม่พา UI เข้าสู่ core
 - [ ] headless host executable และ launcher adapter/IPC
 - [ ] sanitized PSO2 ProcessMode start → running → stop integration test จริง
 - [ ] ตัด `Global.MainForm` และ UI callback ออกจาก runtime path จริง
@@ -325,8 +346,8 @@ evidence
 |---|---|
 | `Netch/Global.cs` | แทน lazy `MainForm` dependency ด้วย injected host/runtime dependencies |
 | `Netch/Program.cs` | แยก UI entry point จาก headless host entry point; เอา `Application.Run`, console และ MessageBox ออกจาก core path |
-| `Controllers/MainController.cs` | ส่ง typed status ผ่าน sink |
-| `Controllers/NFController.cs` | ส่ง driver/lifecycle status ผ่าน sink; อย่า log secret |
+| `Controllers/MainController.cs` | จุดเริ่มต้นย้ายเป็น injected typed status sink แล้ว; runtime path อื่นยังต้องแยกต่อ |
+| `Controllers/NFController.cs` | ส่ง driver/lifecycle status ผ่าน sink แล้ว; อย่า log secret |
 | `Controllers/TUNController.cs` | ย้าย cancellation/timeout/result เมื่อ ProcessMode track ผ่านแล้ว |
 | `Controllers/PcapController.cs` | แยก `LogForm`/`BeginInvoke`; นอก MVP |
 | `Services/ModeService.cs` | คืน mode descriptors แทนแก้ ComboBox |

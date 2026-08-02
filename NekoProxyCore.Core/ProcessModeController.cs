@@ -3,7 +3,7 @@ namespace NekoProxyCore.Core;
 /// <summary>
 /// ProcessMode seam. Native redirector/driver behavior is supplied by the engine adapter.
 /// </summary>
-public sealed class ProcessModeController : IProxyModeController
+public sealed class ProcessModeController : IProxyModeController, IProcessExitWatcher
 {
     private readonly IProcessResolver _processResolver;
     private readonly IProcessModeEngine _engine;

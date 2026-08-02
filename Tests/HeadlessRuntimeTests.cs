@@ -94,6 +94,39 @@ public sealed class HeadlessRuntimeTests
     }
 
     [TestMethod]
+    public async Task ProcessExitAfterStartupStopsTheEngineAndRuntime()
+    {
+        var process = new ExitSignalProcessResolver();
+        var engine = new FakeEngine();
+        var runtime = new HeadlessRuntimeCoordinator(new ProcessModeController(process, engine));
+        var configuration = new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "fixture-pso2", "fixture-server");
+
+        Assert.IsTrue((await runtime.StartAsync(new ProxyStartRequest(configuration, "process-exit"))).Succeeded);
+        process.SignalExit();
+
+        await engine.StopCompleted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.AreEqual(ProxyStatusKind.Stopped, (await runtime.GetStatusAsync()).Status);
+        Assert.AreEqual(1, engine.StopCount);
+    }
+
+    [TestMethod]
+    public async Task ProcessExitMonitorFailureStopsTheEngineAndReturnsTypedStatus()
+    {
+        var engine = new FakeEngine();
+        var sink = new FailureRecordingSink();
+        var runtime = new HeadlessRuntimeCoordinator(new ProcessModeController(new FailingExitProcessResolver(), engine), sink);
+        var configuration = new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "fixture-pso2", "fixture-server");
+
+        Assert.IsTrue((await runtime.StartAsync(new ProxyStartRequest(configuration, "process-monitor-failure"))).Succeeded);
+
+        await sink.Failed.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        var status = await runtime.GetStatusAsync();
+        Assert.AreEqual(ProxyStatusKind.Failed, status.Status);
+        Assert.AreEqual(ProxyErrorCode.StartFailed, status.Error!.Code);
+        Assert.AreEqual(1, engine.StopCount);
+    }
+
+    [TestMethod]
     public void InvalidConfigurationCanBeReturnedAsSafeTypedResult()
     {
         var created = ProxyConfiguration.TryCreate(
@@ -248,7 +281,8 @@ public sealed class HeadlessRuntimeTests
 
         public Task<bool> IsRunningAsync(string processName, CancellationToken cancellationToken) => Task.FromResult(_running);
 
-        public Task WaitForExitAsync(string processName, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task WaitForExitAsync(string processName, CancellationToken cancellationToken) =>
+            Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
     }
 
     private sealed class FakeEngine : IProcessModeEngine
@@ -262,6 +296,9 @@ public sealed class HeadlessRuntimeTests
         public int StartCount { get; private set; }
 
         public int StopCount { get; private set; }
+
+        public TaskCompletionSource<object?> StopCompleted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public async Task StartAsync(ProxyConfiguration configuration, CancellationToken cancellationToken)
         {
@@ -280,8 +317,15 @@ public sealed class HeadlessRuntimeTests
 
         private async Task StopAsyncCore(CancellationToken cancellationToken)
         {
-            if (StopDelay > TimeSpan.Zero)
-                await Task.Delay(StopDelay, cancellationToken);
+            try
+            {
+                if (StopDelay > TimeSpan.Zero)
+                    await Task.Delay(StopDelay, cancellationToken);
+            }
+            finally
+            {
+                StopCompleted.TrySetResult(null);
+            }
         }
     }
 
@@ -299,6 +343,38 @@ public sealed class HeadlessRuntimeTests
             return Task.FromResult(_states.Dequeue());
         }
 
-        public Task WaitForExitAsync(string processName, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task WaitForExitAsync(string processName, CancellationToken cancellationToken) =>
+            Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+    }
+
+    private sealed class ExitSignalProcessResolver : IProcessResolver
+    {
+        private readonly TaskCompletionSource<object?> _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<bool> IsRunningAsync(string processName, CancellationToken cancellationToken) => Task.FromResult(true);
+
+        public Task WaitForExitAsync(string processName, CancellationToken cancellationToken) => _exited.Task.WaitAsync(cancellationToken);
+
+        public void SignalExit() => _exited.TrySetResult(null);
+    }
+
+    private sealed class FailingExitProcessResolver : IProcessResolver
+    {
+        public Task<bool> IsRunningAsync(string processName, CancellationToken cancellationToken) => Task.FromResult(true);
+
+        public Task WaitForExitAsync(string processName, CancellationToken cancellationToken) =>
+            Task.FromException(new InvalidOperationException("process observer unavailable"));
+    }
+
+    private sealed class FailureRecordingSink : IProxyStatusSink
+    {
+        public TaskCompletionSource<ProxyStatusEvent> Failed { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void OnStatusChanged(ProxyStatusEvent statusEvent)
+        {
+            if (statusEvent.Status == ProxyStatusKind.Failed)
+                Failed.TrySetResult(statusEvent);
+        }
     }
 }

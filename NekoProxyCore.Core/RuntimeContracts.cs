@@ -32,6 +32,15 @@ public interface IProxyModeController
     Task StopAsync(CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// Optional capability for a mode controller that can observe the target process exiting.
+/// The runtime uses this to tear down a started ProcessMode session without a polling loop.
+/// </summary>
+public interface IProcessExitWatcher
+{
+    Task WaitForProcessExitAsync(ProxyConfiguration configuration, CancellationToken cancellationToken);
+}
+
 public interface IProcessModeEngine
 {
     Task StartAsync(ProxyConfiguration configuration, CancellationToken cancellationToken);

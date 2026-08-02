@@ -1,4 +1,5 @@
 ﻿using Netch.Controllers;
+using NekoProxyCore.Core;
 using Netch.Interfaces;
 using Netch.Models;
 using Netch.Models.Modes;
@@ -96,14 +97,18 @@ public class ModeService
             File.Delete(mode.FullName);
     }
 
-    public static IModeController GetModeControllerByType(ModeType type, out ushort? port, out string portName)
+    public static IModeController GetModeControllerByType(
+        ModeType type,
+        out ushort? port,
+        out string portName,
+        IProxyStatusSink? statusSink = null)
     {
         port = null;
         portName = string.Empty;
         switch (type)
         {
             case ModeType.ProcessMode:
-                return new NFController();
+                return new NFController(statusSink);
             case ModeType.TunMode:
                 return new TUNController();
             case ModeType.ShareMode:
