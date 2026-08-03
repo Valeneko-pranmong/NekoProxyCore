@@ -3,6 +3,7 @@ namespace NekoProxyCore.Core;
 public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
 {
     private readonly IProxyModeController _modeController;
+    private readonly IProxyStartAuthorizer _startAuthorizer;
     private readonly IProxyStatusSink _statusSink;
     private readonly Func<DateTimeOffset> _clock;
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
@@ -14,8 +15,18 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
         IProxyModeController modeController,
         IProxyStatusSink? statusSink = null,
         Func<DateTimeOffset>? clock = null)
+        : this(modeController, new AuthorizationRequiredStartAuthorizer(), statusSink, clock)
+    {
+    }
+
+    public HeadlessRuntimeCoordinator(
+        IProxyModeController modeController,
+        IProxyStartAuthorizer startAuthorizer,
+        IProxyStatusSink? statusSink = null,
+        Func<DateTimeOffset>? clock = null)
     {
         _modeController = modeController ?? throw new ArgumentNullException(nameof(modeController));
+        _startAuthorizer = startAuthorizer ?? throw new ArgumentNullException(nameof(startAuthorizer));
         _statusSink = statusSink ?? NullProxyStatusSink.Instance;
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
         _snapshot = new ProxyStatusSnapshot(ProxyStatusKind.Stopped, string.Empty, _clock());
@@ -42,9 +53,29 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
             if (_snapshot.Status is ProxyStatusKind.Starting or ProxyStatusKind.Running or ProxyStatusKind.Stopping)
                 return Fail(request.CorrelationId, ProxyErrorCode.AlreadyRunning, "Proxy runtime is already running.");
 
-            Publish(ProxyStatusKind.Starting, request.CorrelationId);
             try
             {
+                ProxyError? authorizationError;
+                try
+                {
+                    authorizationError = await _startAuthorizer.AuthorizeAsync(request).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (request.CancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch
+                {
+                    return Fail(
+                        request.CorrelationId,
+                        ProxyErrorCode.AuthorizationUnavailable,
+                        "Online authorization is unavailable.");
+                }
+
+                if (authorizationError != null)
+                    return Fail(request.CorrelationId, authorizationError.Code, authorizationError.SafeMessage);
+
+                Publish(ProxyStatusKind.Starting, request.CorrelationId);
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(request.CancellationToken);
                 timeout.CancelAfter(request.Configuration.StartTimeout);
                 await _modeController.StartAsync(request.Configuration, timeout.Token)

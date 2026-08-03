@@ -18,7 +18,7 @@ public sealed class HeadlessRuntimeTests
         var process = new FakeProcessResolver(true);
         var engine = new FakeEngine();
         var sink = new RecordingSink();
-        var runtime = new HeadlessRuntimeCoordinator(new ProcessModeController(process, engine), sink);
+        var runtime = CreateAuthorizedRuntime(new ProcessModeController(process, engine), sink);
         var request = new ProxyStartRequest(new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "fixture-pso2", "fixture-server"), "test-session");
 
         var started = await runtime.StartAsync(request);
@@ -38,7 +38,7 @@ public sealed class HeadlessRuntimeTests
     public async Task RepeatedStopIsIdempotent()
     {
         var engine = new FakeEngine();
-        var runtime = new HeadlessRuntimeCoordinator(new ProcessModeController(new FakeProcessResolver(true), engine));
+        var runtime = CreateAuthorizedRuntime(new ProcessModeController(new FakeProcessResolver(true), engine));
 
         var first = await runtime.StopAsync();
         var second = await runtime.StopAsync();
@@ -52,7 +52,7 @@ public sealed class HeadlessRuntimeTests
     public async Task RepeatedStartReturnsAlreadyRunningWithoutCallingEngineAgain()
     {
         var engine = new FakeEngine();
-        var runtime = new HeadlessRuntimeCoordinator(new ProcessModeController(new FakeProcessResolver(true), engine));
+        var runtime = CreateAuthorizedRuntime(new ProcessModeController(new FakeProcessResolver(true), engine));
         var request = new ProxyStartRequest(new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "fixture-pso2", "fixture-server"), "same-session");
 
         var first = await runtime.StartAsync(request);
@@ -65,10 +65,52 @@ public sealed class HeadlessRuntimeTests
     }
 
     [TestMethod]
+    public async Task MissingAuthorizationReturnsTypedErrorWithoutStartingEngine()
+    {
+        var engine = new FakeEngine();
+        var runtime = new HeadlessRuntimeCoordinator(
+            new ProcessModeController(new FakeProcessResolver(true), engine));
+        var request = new ProxyStartRequest(
+            new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "fixture-pso2", "fixture-server"),
+            "authorization-required");
+
+        var result = await runtime.StartAsync(request);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(ProxyErrorCode.AuthorizationRequired, result.Error!.Code);
+        Assert.AreEqual(0, engine.StartCount);
+    }
+
+    [TestMethod]
+    public async Task AuthorizerExceptionReturnsSanitizedUnavailableWithoutStartingEngine()
+    {
+        const string sentinel = "raw-authorizer-secret-sentinel";
+        var engine = new FakeEngine();
+        var sink = new RecordingSink();
+        var runtime = new HeadlessRuntimeCoordinator(
+            new ProcessModeController(new FakeProcessResolver(true), engine),
+            new ThrowingStartAuthorizer(sentinel),
+            sink);
+        var request = new ProxyStartRequest(
+            new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "fixture-pso2", "fixture-server"),
+            "authorization-unavailable");
+
+        var result = await runtime.StartAsync(request);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(ProxyErrorCode.AuthorizationUnavailable, result.Error!.Code);
+        Assert.AreEqual("Online authorization is unavailable.", result.Error.SafeMessage);
+        Assert.IsFalse(result.Error.SafeMessage.Contains(sentinel, StringComparison.Ordinal));
+        Assert.AreEqual(0, engine.StartCount);
+        Assert.IsFalse(sink.Events.Any(x => x.Status == ProxyStatusKind.Starting));
+        Assert.IsFalse(sink.Events.Any(x => x.Error?.SafeMessage.Contains(sentinel, StringComparison.Ordinal) == true));
+    }
+
+    [TestMethod]
     public async Task InvalidProcessReturnsTypedErrorWithoutStartingEngine()
     {
         var engine = new FakeEngine();
-        var runtime = new HeadlessRuntimeCoordinator(new ProcessModeController(new FakeProcessResolver(false), engine));
+        var runtime = CreateAuthorizedRuntime(new ProcessModeController(new FakeProcessResolver(false), engine));
         var request = new ProxyStartRequest(new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "fixture-pso2", "fixture-server"), "invalid-process");
 
         var result = await runtime.StartAsync(request);
@@ -83,7 +125,7 @@ public sealed class HeadlessRuntimeTests
     {
         var engine = new FakeEngine();
         var resolver = new SequenceProcessResolver(true, false);
-        var runtime = new HeadlessRuntimeCoordinator(new ProcessModeController(resolver, engine));
+        var runtime = CreateAuthorizedRuntime(new ProcessModeController(resolver, engine));
         var request = new ProxyStartRequest(new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "fixture-pso2", "fixture-server"));
 
         var result = await runtime.StartAsync(request);
@@ -98,7 +140,7 @@ public sealed class HeadlessRuntimeTests
     {
         var process = new ExitSignalProcessResolver();
         var engine = new FakeEngine();
-        var runtime = new HeadlessRuntimeCoordinator(new ProcessModeController(process, engine));
+        var runtime = CreateAuthorizedRuntime(new ProcessModeController(process, engine));
         var configuration = new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "fixture-pso2", "fixture-server");
 
         Assert.IsTrue((await runtime.StartAsync(new ProxyStartRequest(configuration, "process-exit"))).Succeeded);
@@ -114,7 +156,7 @@ public sealed class HeadlessRuntimeTests
     {
         var engine = new FakeEngine();
         var sink = new FailureRecordingSink();
-        var runtime = new HeadlessRuntimeCoordinator(new ProcessModeController(new FailingExitProcessResolver(), engine), sink);
+        var runtime = CreateAuthorizedRuntime(new ProcessModeController(new FailingExitProcessResolver(), engine), sink);
         var configuration = new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "fixture-pso2", "fixture-server");
 
         Assert.IsTrue((await runtime.StartAsync(new ProxyStartRequest(configuration, "process-monitor-failure"))).Succeeded);
@@ -167,7 +209,7 @@ public sealed class HeadlessRuntimeTests
     public async Task StartTimeoutIsTypedAndSafe()
     {
         var engine = new FakeEngine { StartDelay = TimeSpan.FromSeconds(2) };
-        var runtime = new HeadlessRuntimeCoordinator(new ProcessModeController(new FakeProcessResolver(true), engine));
+        var runtime = CreateAuthorizedRuntime(new ProcessModeController(new FakeProcessResolver(true), engine));
         var config = new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "fixture-pso2", "fixture-server", TimeSpan.FromMilliseconds(30));
 
         var result = await runtime.StartAsync(new ProxyStartRequest(config, "timeout-session"));
@@ -181,7 +223,7 @@ public sealed class HeadlessRuntimeTests
     public async Task StopTimeoutUsesTheConfigurationTimeout()
     {
         var engine = new FakeEngine { StopDelay = TimeSpan.FromSeconds(2) };
-        var runtime = new HeadlessRuntimeCoordinator(new ProcessModeController(new FakeProcessResolver(true), engine));
+        var runtime = CreateAuthorizedRuntime(new ProcessModeController(new FakeProcessResolver(true), engine));
         var config = new ProxyConfiguration(
             ProxyModeKind.Process,
             "pso2.exe",
@@ -202,7 +244,7 @@ public sealed class HeadlessRuntimeTests
     {
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
-        var runtime = new HeadlessRuntimeCoordinator(new ProcessModeController(new FakeProcessResolver(true), new FakeEngine()));
+        var runtime = CreateAuthorizedRuntime(new ProcessModeController(new FakeProcessResolver(true), new FakeEngine()));
         var request = new ProxyStartRequest(
             new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "fixture-pso2", "fixture-server"),
             "cancelled-start",
@@ -219,7 +261,7 @@ public sealed class HeadlessRuntimeTests
     public async Task ErrorMessagesRedactSecretAssignments()
     {
         var engine = new FakeEngine { Exception = new InvalidOperationException("connect failed password=sentinel-token --token another-secret https://user:uri-secret@example.test") };
-        var runtime = new HeadlessRuntimeCoordinator(new ProcessModeController(new FakeProcessResolver(true), engine));
+        var runtime = CreateAuthorizedRuntime(new ProcessModeController(new FakeProcessResolver(true), engine));
         var result = await runtime.StartAsync(new ProxyStartRequest(new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "fixture-pso2", "fixture-server")));
 
         Assert.IsFalse(result.Succeeded);
@@ -282,6 +324,26 @@ public sealed class HeadlessRuntimeTests
             // A protected process cannot always expose a wait handle. The fallback must remain
             // active until cancellation instead of failing the runtime monitor.
         }
+    }
+
+    private static HeadlessRuntimeCoordinator CreateAuthorizedRuntime(
+        IProxyModeController modeController,
+        IProxyStatusSink? statusSink = null) =>
+        new(modeController, new TestStartAuthorizer(), statusSink);
+
+    private sealed class TestStartAuthorizer : IProxyStartAuthorizer
+    {
+        public Task<ProxyError?> AuthorizeAsync(ProxyStartRequest request) => Task.FromResult<ProxyError?>(null);
+    }
+
+    private sealed class ThrowingStartAuthorizer : IProxyStartAuthorizer
+    {
+        private readonly string _message;
+
+        public ThrowingStartAuthorizer(string message) => _message = message;
+
+        public Task<ProxyError?> AuthorizeAsync(ProxyStartRequest request) =>
+            Task.FromException<ProxyError?>(new InvalidOperationException(_message));
     }
 
     private sealed class RecordingSink : IProxyStatusSink
