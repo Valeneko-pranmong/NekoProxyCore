@@ -4,7 +4,9 @@
 **Repository:** `D:\NekoProxyCore`
 **Branch:** `feature/neko-headless`
 **Baseline revision:** `8d19f36c3c18be52cc36b0102d1496510fdbd30f`
-**Commit status:** recorded by the repository commit containing this handoff
+**Delivered revision assessed:** `0896fe80e510b9dec6f173f736784551a4659b9a`
+**Delivered worktree status:** clean after the delivered commit
+**Correction status:** this handoff correction is committed separately after the verification rerun recorded below
 **Classification:** `DESIGN READY / IMPLEMENTATION PARTIAL`
 **Production integration:** `BLOCKED`
 
@@ -163,7 +165,7 @@ Modified for C5:
 - `NekoProxyCore.Core/HeadlessRuntimeCoordinator.cs`
 - `Tests/HeadlessRuntimeTests.cs`
 
-Pre-existing C1 documentation modifications remain uncommitted in the same worktree and are not reverted.
+The delivered revision includes all files listed above together with the related C1 documentation updates. The worktree was clean after that delivered commit; no pre-existing documentation modifications remained uncommitted.
 
 ## 3.1 Independent review closure
 
@@ -217,7 +219,7 @@ Focused review regression set: `6/6` passed. Full managed suite after fixes: `64
 | Boundary | Status | Evidence |
 |---|---|---|
 | Core S0 proposal | DESIGN READY | sanitized proposal and owner matrix |
-| C5 managed cleanup | PASS | RED/GREEN regressions + 60/60 full suite |
+| C5 managed cleanup | PASS | RED/GREEN regressions + 64/64 full suite |
 | Process-exit test stability | PASS (managed) | 20/20 focused rerun |
 | Verifier/fixture seams | PARTIAL | seam tests pass; no crypto verifier |
 | Strict RS256 verifier | BLOCKED | contract/key/vectors not frozen |
