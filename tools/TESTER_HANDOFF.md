@@ -1,4 +1,4 @@
-# NekoProxyCore — Tester handoff สำหรับ Step D
+﻿# NekoProxyCore — Tester handoff สำหรับ Step D
 
 อัปเดต: 2026-08-03
 Branch: `feature/neko-headless`
@@ -12,7 +12,7 @@ Baseline ที่ห้ามแก้: `baseline/netch-1.9.7` / `99480e99c3f5f
 - Core และ Windows adapter Release build ผ่าน 0 warnings
 - Legacy adapter build ผ่านทั้ง `net6.0` และ `net6.0-windows` ด้วย Visual Studio
   MSBuild `17.14.51`
-- Full `Tests/Tests.csproj` suite ล่าสุดผ่าน `27/27`
+- `Tests/Tests.csproj` มี 64 tests ในรอบ `Core-S0-Producer-01` และ full managed rerun ผ่าน `64/64`; observed C1 flaky run `50/51` ถูกแก้ synchronization แล้วและ focused rerun ผ่าน `20/20`
 
 วันที่ 2026-08-03 Step D full ProcessMode integration gate ผ่านกับ `pso2.exe` จริง:
 lifecycle/local-SOCKS ผ่าน, runtime คง `Running` ครบ traffic window 600 วินาที, เข้า
@@ -69,7 +69,7 @@ $dotnet = 'C:\Program Files\dotnet\dotnet.exe'
 & $dotnet test .\Tests\Tests.csproj -c Release --no-restore
 ```
 
-Acceptance: Core/Windows build สำเร็จ และ test result ล่าสุดเป็น `27 passed, 0 failed`.
+Acceptance สำหรับ checkpoint เดิม: Core/Windows build สำเร็จ. ตัวเลข 51 tests เป็น C1 historical checkpoint; suite รอบ `Core-S0-Producer-01` มี 64 tests และ C5 process-exit stability ผ่าน focused rerun `20/20`.
 `SYSLIB0021` จาก `Tests\Global.cs` เป็น warning เดิมที่ไม่เกี่ยวกับ Step D
 
 ## 3. Legacy Windows-target build
@@ -179,8 +179,9 @@ publish สำเร็จและ `windowsRuntimeAssets=verified`. ห้า�
 - **BLOCKED**: ไม่มี PSO2 process, driver/native dependency ไม่พร้อม หรือไม่มี opaque
   profile/server ที่ผู้ใช้อนุมัติ — ห้ามรายงานเป็น PASS
 
-สถานะล่าสุดคือ **Step D full ProcessMode integration gate PASS; external target traffic
-verification ผ่านด้วย server-side Shadowsocks counters**.
+สถานะ historical ของ accepted run คือ **Step D full ProcessMode integration gate PASS;
+external target traffic verification ผ่านด้วย server-side Shadowsocks counters**. หลักฐานนี้
+เกิดก่อน production authorization gate และห้ามใช้แทน authorized production E2E.
 
 ### Exit-code matrix ของ official launcher
 

@@ -121,6 +121,55 @@ public sealed class HeadlessRuntimeTests
     }
 
     [TestMethod]
+    public async Task PartialModeStartFailureCleansUpBeforeReturningFailure()
+    {
+        var controller = new PartialStartFailingController();
+        var runtime = CreateAuthorizedRuntime(controller);
+        var request = new ProxyStartRequest(
+            new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "fixture-pso2", "fixture-server"),
+            "partial-start-cleanup");
+
+        var result = await runtime.StartAsync(request);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(ProxyErrorCode.StartFailed, result.Error!.Code);
+        Assert.AreEqual(1, controller.StartCount);
+        Assert.AreEqual(1, controller.StopCount);
+        Assert.IsFalse(controller.HasOwnedState);
+    }
+
+    [TestMethod]
+    public async Task PartialModeStartCleanupFailureRetainsOwnershipUntilStopRetries()
+    {
+        var controller = new PartialStartFailingController { StopFailuresRemaining = 1 };
+        var runtime = CreateAuthorizedRuntime(controller);
+        var request = new ProxyStartRequest(
+            new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "fixture-pso2", "fixture-server"),
+            "partial-start-cleanup-failure");
+
+        var result = await runtime.StartAsync(request);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(ProxyErrorCode.StopFailed, result.Error!.Code);
+        Assert.AreEqual("Proxy cleanup failed.", result.Error.SafeMessage);
+        Assert.AreEqual(1, controller.StopCount);
+        Assert.IsTrue(controller.HasOwnedState);
+
+        var duplicateStart = await runtime.StartAsync(new ProxyStartRequest(request.Configuration, "blocked-duplicate-start"));
+
+        Assert.IsFalse(duplicateStart.Succeeded);
+        Assert.AreEqual(ProxyErrorCode.AlreadyRunning, duplicateStart.Error!.Code);
+        Assert.AreEqual(1, controller.StartCount);
+
+        var stopped = await runtime.StopAsync();
+
+        Assert.IsTrue(stopped.Succeeded);
+        Assert.AreEqual(ProxyStatusKind.Stopped, stopped.Status);
+        Assert.AreEqual(2, controller.StopCount);
+        Assert.IsFalse(controller.HasOwnedState);
+    }
+
+    [TestMethod]
     public async Task ProcessExitDuringStartReturnsTypedError()
     {
         var engine = new FakeEngine();
@@ -133,6 +182,7 @@ public sealed class HeadlessRuntimeTests
         Assert.IsFalse(result.Succeeded);
         Assert.AreEqual(ProxyErrorCode.ProcessExited, result.Error!.Code);
         Assert.AreEqual(1, engine.StartCount);
+        Assert.AreEqual(1, engine.StopCount);
     }
 
     [TestMethod]
@@ -140,13 +190,14 @@ public sealed class HeadlessRuntimeTests
     {
         var process = new ExitSignalProcessResolver();
         var engine = new FakeEngine();
-        var runtime = CreateAuthorizedRuntime(new ProcessModeController(process, engine));
+        var sink = new StoppedRecordingSink();
+        var runtime = CreateAuthorizedRuntime(new ProcessModeController(process, engine), sink);
         var configuration = new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "fixture-pso2", "fixture-server");
 
         Assert.IsTrue((await runtime.StartAsync(new ProxyStartRequest(configuration, "process-exit"))).Succeeded);
         process.SignalExit();
 
-        await engine.StopCompleted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await sink.Stopped.Task.WaitAsync(TimeSpan.FromSeconds(1));
         Assert.AreEqual(ProxyStatusKind.Stopped, (await runtime.GetStatusAsync()).Status);
         Assert.AreEqual(1, engine.StopCount);
     }
@@ -166,6 +217,59 @@ public sealed class HeadlessRuntimeTests
         Assert.AreEqual(ProxyStatusKind.Failed, status.Status);
         Assert.AreEqual(ProxyErrorCode.StartFailed, status.Error!.Code);
         Assert.AreEqual(1, engine.StopCount);
+
+        var stopped = await runtime.StopAsync();
+
+        Assert.IsTrue(stopped.Succeeded);
+        Assert.AreEqual(ProxyStatusKind.Stopped, stopped.Status);
+        Assert.AreEqual(1, engine.StopCount);
+    }
+
+    [TestMethod]
+    public async Task TypedMonitorExceptionReturnsAllowListedMessage()
+    {
+        const string sentinel = "typed-monitor-secret-sentinel";
+        var sink = new FailureRecordingSink();
+        var controller = new TypedFailingExitController(
+            new ProxyRuntimeException(ProxyErrorCode.ProcessExited, sentinel));
+        var runtime = CreateAuthorizedRuntime(controller, sink);
+        var configuration = new ProxyConfiguration(
+            ProxyModeKind.Process,
+            "pso2.exe",
+            "fixture-pso2",
+            "fixture-server");
+
+        Assert.IsTrue((await runtime.StartAsync(
+            new ProxyStartRequest(configuration, "typed-monitor-failure"))).Succeeded);
+
+        var failure = await sink.Failed.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.AreEqual(ProxyErrorCode.ProcessExited, failure.Error!.Code);
+        Assert.AreEqual("The target process exited during startup.", failure.Error.SafeMessage);
+        Assert.IsFalse(failure.Error.SafeMessage.Contains(sentinel, StringComparison.Ordinal));
+        Assert.AreEqual(1, controller.StopCount);
+    }
+
+    [TestMethod]
+    public async Task MonitorCleanupFailureRetainsOwnershipUntilExplicitStopSucceeds()
+    {
+        var engine = new FakeEngine { StopFailuresRemaining = 1 };
+        var sink = new FailureRecordingSink();
+        var runtime = CreateAuthorizedRuntime(new ProcessModeController(new FailingExitProcessResolver(), engine), sink);
+        var configuration = new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "fixture-pso2", "fixture-server");
+
+        Assert.IsTrue((await runtime.StartAsync(new ProxyStartRequest(configuration, "monitor-cleanup-failure"))).Succeeded);
+
+        var failure = await sink.Failed.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.AreEqual(ProxyErrorCode.StopFailed, failure.Error!.Code);
+        Assert.AreEqual("Proxy cleanup failed.", failure.Error.SafeMessage);
+        Assert.AreEqual(1, engine.StopCount);
+
+        var stopped = await runtime.StopAsync();
+
+        Assert.IsTrue(stopped.Succeeded);
+        Assert.AreEqual(ProxyStatusKind.Stopped, stopped.Status);
+        Assert.AreEqual(2, engine.StopCount);
     }
 
     [TestMethod]
@@ -217,6 +321,37 @@ public sealed class HeadlessRuntimeTests
         Assert.IsFalse(result.Succeeded);
         Assert.AreEqual(ProxyErrorCode.Timeout, result.Error!.Code);
         Assert.AreEqual(ProxyStatusKind.Failed, (await runtime.GetStatusAsync()).Status);
+    }
+
+    [TestMethod]
+    public async Task NonCooperativeTimedOutStartIsCleanedOnlyAfterItCompletes()
+    {
+        var controller = new LateCompletingStartController();
+        var runtime = CreateAuthorizedRuntime(controller);
+        var configuration = new ProxyConfiguration(
+            ProxyModeKind.Process,
+            "pso2.exe",
+            "fixture-pso2",
+            "fixture-server",
+            TimeSpan.FromMilliseconds(30),
+            TimeSpan.FromSeconds(1));
+
+        var result = await runtime.StartAsync(new ProxyStartRequest(configuration, "late-start"));
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(ProxyErrorCode.Timeout, result.Error!.Code);
+        Assert.AreEqual(0, controller.StopCount);
+
+        var duplicate = await runtime.StartAsync(new ProxyStartRequest(configuration, "late-start-duplicate"));
+        Assert.IsFalse(duplicate.Succeeded);
+        Assert.AreEqual(ProxyErrorCode.AlreadyRunning, duplicate.Error!.Code);
+        Assert.AreEqual(1, controller.StartCount);
+
+        controller.ReleaseStart();
+        await controller.StopCompleted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.AreEqual(1, controller.StopCount);
+        Assert.IsFalse(controller.HasOwnedState);
     }
 
     [TestMethod]
@@ -284,6 +419,23 @@ public sealed class HeadlessRuntimeTests
         Assert.IsFalse(result.Succeeded);
         Assert.AreEqual(ProxyErrorCode.StartFailed, result.Error!.Code);
         Assert.AreEqual("Proxy start failed.", result.Error.SafeMessage);
+        Assert.IsFalse(result.Error.SafeMessage.Contains(sentinel, StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public async Task TypedStartExceptionReturnsAllowListedMessage()
+    {
+        const string sentinel = "typed-start-secret-sentinel";
+        var controller = new ThrowingTypedController(
+            new ProxyRuntimeException(ProxyErrorCode.ProcessExited, sentinel));
+        var runtime = CreateAuthorizedRuntime(controller);
+
+        var result = await runtime.StartAsync(new ProxyStartRequest(
+            new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "fixture-pso2", "fixture-server")));
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(ProxyErrorCode.ProcessExited, result.Error!.Code);
+        Assert.AreEqual("The target process exited during startup.", result.Error.SafeMessage);
         Assert.IsFalse(result.Error.SafeMessage.Contains(sentinel, StringComparison.Ordinal));
     }
 
@@ -408,6 +560,8 @@ public sealed class HeadlessRuntimeTests
 
         public Exception? StopException { get; init; }
 
+        public int StopFailuresRemaining { get; set; }
+
         public int StartCount { get; private set; }
 
         public int StopCount { get; private set; }
@@ -436,6 +590,11 @@ public sealed class HeadlessRuntimeTests
             {
                 if (StopDelay > TimeSpan.Zero)
                     await Task.Delay(StopDelay, cancellationToken);
+                if (StopFailuresRemaining > 0)
+                {
+                    StopFailuresRemaining--;
+                    throw new InvalidOperationException("transient stop failure sentinel");
+                }
                 if (StopException is not null)
                     throw StopException;
             }
@@ -464,6 +623,103 @@ public sealed class HeadlessRuntimeTests
             Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
     }
 
+    private sealed class LateCompletingStartController : IProxyModeController
+    {
+        private readonly TaskCompletionSource<object?> _releaseStart =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int StartCount { get; private set; }
+
+        public int StopCount { get; private set; }
+
+        public bool HasOwnedState { get; private set; }
+
+        public TaskCompletionSource<object?> StopCompleted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task StartAsync(ProxyConfiguration configuration, CancellationToken cancellationToken)
+        {
+            StartCount++;
+            await _releaseStart.Task.ConfigureAwait(false);
+            HasOwnedState = true;
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken)
+        {
+            StopCount++;
+            HasOwnedState = false;
+            StopCompleted.TrySetResult(null);
+            return Task.CompletedTask;
+        }
+
+        public void ReleaseStart() => _releaseStart.TrySetResult(null);
+    }
+
+    private sealed class PartialStartFailingController : IProxyModeController
+    {
+        public int StopFailuresRemaining { get; set; }
+
+        public int StartCount { get; private set; }
+
+        public int StopCount { get; private set; }
+
+        public bool HasOwnedState { get; private set; }
+
+        public Task StartAsync(ProxyConfiguration configuration, CancellationToken cancellationToken)
+        {
+            StartCount++;
+            HasOwnedState = true;
+            throw new InvalidOperationException("partial start failure sentinel");
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken)
+        {
+            StopCount++;
+            if (StopFailuresRemaining > 0)
+            {
+                StopFailuresRemaining--;
+                throw new InvalidOperationException("partial cleanup failure sentinel");
+            }
+
+            HasOwnedState = false;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ThrowingTypedController : IProxyModeController
+    {
+        private readonly ProxyRuntimeException _exception;
+
+        public ThrowingTypedController(ProxyRuntimeException exception) => _exception = exception;
+
+        public Task StartAsync(ProxyConfiguration configuration, CancellationToken cancellationToken) =>
+            Task.FromException(_exception);
+
+        public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    private sealed class TypedFailingExitController : IProxyModeController, IProcessExitWatcher
+    {
+        private readonly ProxyRuntimeException _exception;
+
+        public TypedFailingExitController(ProxyRuntimeException exception) => _exception = exception;
+
+        public int StopCount { get; private set; }
+
+        public Task StartAsync(ProxyConfiguration configuration, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task StopAsync(CancellationToken cancellationToken)
+        {
+            StopCount++;
+            return Task.CompletedTask;
+        }
+
+        public Task WaitForProcessExitAsync(
+            ProxyConfiguration configuration,
+            CancellationToken cancellationToken) => Task.FromException(_exception);
+    }
+
     private sealed class ExitSignalProcessResolver : IProcessResolver
     {
         private readonly TaskCompletionSource<object?> _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -481,6 +737,18 @@ public sealed class HeadlessRuntimeTests
 
         public Task WaitForExitAsync(string processName, CancellationToken cancellationToken) =>
             Task.FromException(new InvalidOperationException("process observer unavailable"));
+    }
+
+    private sealed class StoppedRecordingSink : IProxyStatusSink
+    {
+        public TaskCompletionSource<ProxyStatusEvent> Stopped { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void OnStatusChanged(ProxyStatusEvent statusEvent)
+        {
+            if (statusEvent.Status == ProxyStatusKind.Stopped)
+                Stopped.TrySetResult(statusEvent);
+        }
     }
 
     private sealed class FailureRecordingSink : IProxyStatusSink

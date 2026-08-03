@@ -41,9 +41,11 @@ Branch: `feature/neko-headless`
 - default runtime path ปฏิเสธ start เมื่อไม่มี authorization
 - authorization ถูกตรวจสอบก่อน publish `Starting` และก่อน engine side effects
 - authorizer exception ถูก map เป็น typed `AuthorizationUnavailable` ด้วยข้อความ sanitized
-- challenge generation เริ่มต้นใช้ cryptographic randomness 256 bits
+- challenge primitive/lifecycle ใช้ cryptographic randomness 256 bits, base64url, monotonic
+  expiryไม่เกิน 30 วินาที, one outstanding challenge, atomic one-attempt consumption,
+  replay rejection และ concurrent acceptance สูงสุดหนึ่งครั้ง
 
-อย่างไรก็ตาม สถานะยังเป็น **PARTIAL/BLOCKED** และยังไม่ใช่ production-ready เนื่องจาก production contract สำหรับ protocol, challenge lifecycle, canonical configuration, JWT claims/time/key policy, Backend issuance, continuous authorization และ proxy-access material ยังไม่ได้ freeze
+อย่างไรก็ตาม สถานะยังเป็น **PARTIAL/BLOCKED** และยังไม่ใช่ production-ready เนื่องจาก production contract สำหรับ protocol, challenge encoding/schema/error mapping และ permit/config binding, canonical configuration, JWT claims/time/key policy, Backend issuance, continuous authorization และ proxy-access material ยังไม่ได้ freeze แม้ internal challenge primitive/lifecycle จะมี verified checkpoint แล้ว
 
 เพื่อให้ Core, Launcher และ Backend implement revision เดียวกันโดยไม่ต้องมี insecure compatibility fallback ขอให้ทั้งสี่ทีมร่วม review และอนุมัติรายการในเอกสารนี้
 

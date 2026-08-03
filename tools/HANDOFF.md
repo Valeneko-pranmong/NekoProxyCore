@@ -1,4 +1,4 @@
-# NekoProxyCore — handoff เริ่มจากจุดนี้
+﻿# NekoProxyCore — handoff เริ่มจากจุดนี้
 
 อัปเดต: 2026-08-03 · branch งาน: `feature/neko-headless` · baseline ที่ห้ามแก้:
 `baseline/netch-1.9.7` (`99480e99c3f5f4b0f6c4a32fdbbb4911be2a3687`)
@@ -12,7 +12,7 @@ local SOCKS → traffic window 600 วินาที → stop/cleanup กับ
 server-side Shadowsocks TCP/UDP counters เพิ่มขึ้นระหว่าง gameplay ตาม
 [PROCESSMODE_TEST_REPORT.md](PROCESSMODE_TEST_REPORT.md).
 
-**Step D full integration gate เป็น PASS และเริ่ม Step E development ได้**. ข้อความ static
+**Step D full integration gate เป็น historical pre-authorization PASS และใช้อนุมัติเริ่ม Step E development เท่านั้น**. ข้อความ static
 `TRAFFIC_GATE result=RequiresTargetVerification` ของ runner ถูกปิดด้วย external evidence
 ในรายงาน ไม่ใช่การ hard-code PASS. ยังไม่มี `NekoProxyCore.exe` หรือ production release;
 downstream build/IPC/package/signing/clean-machine gates ยังเปิดอยู่
@@ -23,8 +23,8 @@ downstream build/IPC/package/signing/clean-machine gates ยังเปิด�
   `ProcessModeController`
 - `HeadlessRuntimeCoordinator` มี start/stop/status, idempotent start/stop,
   cancellation, timeout และ typed/sanitized error
-- Unit tests ใช้ fake process resolver/engine และ fixture identifier ที่ไม่มี
-  credential; full `Tests/Tests.csproj` suite ล่าสุดผ่าน `27/27`
+- Unit tests ใช้ fake process resolver/engine และ fixture identifier ที่ไม่มี credential;
+  suite รอบ `Core-S0-Producer-01` มี 64 tests และผ่าน `64/64`. C1 เคยพบหนึ่งรอบ `50/51` จาก process-exit status race; C5 แก้ synchronization แล้วและ focused rerun ผ่าน `20/20`
 - เพิ่ม concrete `NekoProxyCore.Windows/WindowsProcessResolver.cs` ที่ใช้
   `Process.Exited`/process handle, รองรับ cancellation และ fallback แบบ Windows event-based
   เมื่อ protected process ปฏิเสธ process handle
@@ -35,13 +35,13 @@ downstream build/IPC/package/signing/clean-machine gates ยังเปิด�
 - Official sanitized integration runner/launcher ผ่าน lifecycle/local-SOCKS และ target
   traffic verification กับ target จริงแล้ว; IPC/headless production host เป็นงาน Step E
 
-ทีม Tester ให้ใช้ [TESTER_HANDOFF.md](TESTER_HANDOFF.md) เป็น source of truth สำหรับ
+ทีม Tester ให้ใช้ [TESTER_HANDOFF.md](TESTER_HANDOFF.md) เป็น supporting procedure สำหรับ
 คำสั่ง build/test, official runner, exit codes และเกณฑ์ PASS/FAIL/BLOCKED ส่วนทีมพัฒนา
-ให้ใช้ [REFACTOR_HANDOFF.md](REFACTOR_HANDOFF.md) เป็น checkpoint ของ Phase 2
+ให้ใช้ [REFACTOR_HANDOFF.md](REFACTOR_HANDOFF.md) เป็น historical checkpoint ของ Phase 2
 
 รายละเอียด contract, tests, build evidence และงานถัดไปอยู่ใน
-[REFACTOR_HANDOFF.md](REFACTOR_HANDOFF.md) ให้ถือเอกสารนั้นเป็น source of truth
-สำหรับ Phase 2
+[REFACTOR_HANDOFF.md](REFACTOR_HANDOFF.md). สถานะรวมและลำดับงาน canonical อยู่ที่
+`D:\Audit Neko project\Proxy core to do\README.md`
 
 ## เริ่มงานอย่างปลอดภัย
 
@@ -145,7 +145,7 @@ Core-generated one-use challenge, active account/license/installation/session/he
 canonical start configuration. `CurrentUserOnly` named pipe และการตรวจ `pso2.exe` เป็นคนละ
 precondition และใช้แทน authorization ไม่ได้
 
-Step D ProcessMode/gameplay PASS ยังคงมีผล แต่ Step E production host จัดเป็น
+Step D ProcessMode/gameplay PASS ยังคงมีผลในฐานะ historical pre-authorization evidence แต่ Step E production host จัดเป็น
 **SECURITY BLOCKED** จนกว่า Backend/Core/Launcher/Proxy Server จะปิด permit, replay,
 revocation และ static reusable proxy credential gates ตามรายงานดังกล่าว
 

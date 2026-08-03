@@ -9,6 +9,7 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private ProxyStatusSnapshot _snapshot;
     private ProxyConfiguration? _activeConfiguration;
+    private Task? _pendingStartTask;
     private CancellationTokenSource? _processExitMonitorCancellation;
 
     public HeadlessRuntimeCoordinator(
@@ -50,8 +51,11 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
         }
         try
         {
-            if (_snapshot.Status is ProxyStatusKind.Starting or ProxyStatusKind.Running or ProxyStatusKind.Stopping)
+            if (_activeConfiguration != null ||
+                _snapshot.Status is ProxyStatusKind.Starting or ProxyStatusKind.Running or ProxyStatusKind.Stopping)
+            {
                 return Fail(request.CorrelationId, ProxyErrorCode.AlreadyRunning, "Proxy runtime is already running.");
+            }
 
             try
             {
@@ -76,12 +80,50 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
                     return Fail(request.CorrelationId, authorizationError.Code, authorizationError.SafeMessage);
 
                 Publish(ProxyStatusKind.Starting, request.CorrelationId);
+                _activeConfiguration = request.Configuration;
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(request.CancellationToken);
                 timeout.CancelAfter(request.Configuration.StartTimeout);
-                await _modeController.StartAsync(request.Configuration, timeout.Token)
-                    .WaitAsync(request.Configuration.StartTimeout, request.CancellationToken)
-                    .ConfigureAwait(false);
+                Task? startTask = null;
+                try
+                {
+                    startTask = _modeController.StartAsync(request.Configuration, timeout.Token);
+                    _pendingStartTask = startTask;
+                    await startTask
+                        .WaitAsync(request.Configuration.StartTimeout, request.CancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch
+                {
+                    if (startTask != null && !startTask.IsCompleted)
+                    {
+                        _ = CleanupWhenPendingStartCompletesAsync(
+                            startTask,
+                            request.Configuration,
+                            request.CorrelationId);
+                        throw;
+                    }
 
+                    _pendingStartTask = null;
+                    try
+                    {
+                        using var cleanupTimeout = new CancellationTokenSource(request.Configuration.StopTimeout);
+                        await _modeController.StopAsync(cleanupTimeout.Token)
+                            .WaitAsync(request.Configuration.StopTimeout)
+                            .ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        return Fail(
+                            request.CorrelationId,
+                            ProxyErrorCode.StopFailed,
+                            "Proxy cleanup failed.");
+                    }
+
+                    _activeConfiguration = null;
+                    throw;
+                }
+
+                _pendingStartTask = null;
                 _activeConfiguration = request.Configuration;
                 Publish(ProxyStatusKind.Running, request.CorrelationId);
                 StartProcessExitMonitoring(request.Configuration, request.CorrelationId);
@@ -101,7 +143,7 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
             }
             catch (ProxyRuntimeException e)
             {
-                return Fail(request.CorrelationId, e.Code, e.Message);
+                return Fail(request.CorrelationId, e.Code, GetAllowListedRuntimeMessage(e.Code));
             }
             catch (Exception)
             {
@@ -133,6 +175,21 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
                 return ProxyResult.Success(ProxyStatusKind.Stopped, _snapshot.CorrelationId);
 
             var correlationId = _snapshot.CorrelationId;
+            if (_pendingStartTask != null)
+            {
+                return Fail(
+                    correlationId,
+                    ProxyErrorCode.StopFailed,
+                    "Proxy start cleanup is pending.");
+            }
+
+            if (_activeConfiguration == null)
+            {
+                CancelProcessExitMonitoring();
+                Publish(ProxyStatusKind.Stopped, correlationId);
+                return ProxyResult.Success(ProxyStatusKind.Stopped, correlationId);
+            }
+
             CancelProcessExitMonitoring();
             Publish(ProxyStatusKind.Stopping, correlationId);
             try
@@ -181,6 +238,20 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
         return ProxyResult.Failure(ProxyStatusKind.Failed, correlationId, error);
     }
 
+    private static string GetAllowListedRuntimeMessage(ProxyErrorCode code) => code switch
+    {
+        ProxyErrorCode.InvalidConfiguration => "Proxy configuration is invalid.",
+        ProxyErrorCode.AlreadyRunning => "Proxy runtime is already running.",
+        ProxyErrorCode.NotRunning => "Proxy runtime is not running.",
+        ProxyErrorCode.UnsupportedMode => "The requested proxy mode is not supported.",
+        ProxyErrorCode.ProcessNotFound => "The target process is not running.",
+        ProxyErrorCode.ProcessExited => "The target process exited during startup.",
+        ProxyErrorCode.StopFailed => "Proxy stop failed.",
+        ProxyErrorCode.Timeout => "Proxy operation timed out.",
+        ProxyErrorCode.Cancelled => "Proxy operation was cancelled.",
+        _ => "Proxy start failed."
+    };
+
     private void StartProcessExitMonitoring(ProxyConfiguration configuration, string correlationId)
     {
         CancelProcessExitMonitoring();
@@ -190,6 +261,46 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
         var cancellation = new CancellationTokenSource();
         _processExitMonitorCancellation = cancellation;
         _ = StopWhenProcessExitsAsync(processExitWatcher, configuration, correlationId, cancellation);
+    }
+
+    private async Task CleanupWhenPendingStartCompletesAsync(
+        Task startTask,
+        ProxyConfiguration configuration,
+        string correlationId)
+    {
+        try
+        {
+            await startTask.ConfigureAwait(false);
+        }
+        catch
+        {
+            // The public start result is already typed and sanitized; cleanup still owns the boundary.
+        }
+
+        await _lifecycleGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (!ReferenceEquals(_pendingStartTask, startTask))
+                return;
+
+            _pendingStartTask = null;
+            try
+            {
+                using var cleanupTimeout = new CancellationTokenSource(configuration.StopTimeout);
+                await _modeController.StopAsync(cleanupTimeout.Token)
+                    .WaitAsync(configuration.StopTimeout)
+                    .ConfigureAwait(false);
+                _activeConfiguration = null;
+            }
+            catch
+            {
+                Fail(correlationId, ProxyErrorCode.StopFailed, "Proxy cleanup failed.");
+            }
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
     }
 
     private async Task StopWhenProcessExitsAsync(
@@ -210,7 +321,12 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
         }
         catch (ProxyRuntimeException exception)
         {
-            await PublishMonitorFailureAsync(correlationId, exception.Code, exception.Message, cancellation).ConfigureAwait(false);
+            await PublishMonitorFailureAsync(
+                    correlationId,
+                    exception.Code,
+                    GetAllowListedRuntimeMessage(exception.Code),
+                    cancellation)
+                .ConfigureAwait(false);
         }
         catch (Exception)
         {
@@ -238,9 +354,7 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
             if (cancellation.IsCancellationRequested || !ReferenceEquals(_processExitMonitorCancellation, cancellation))
                 return;
 
-            _processExitMonitorCancellation = null;
             var activeConfiguration = _activeConfiguration;
-            _activeConfiguration = null;
             if (activeConfiguration != null)
             {
                 try
@@ -252,10 +366,13 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
                 }
                 catch
                 {
-                    // Preserve the typed monitor failure below; best-effort cleanup must not expose legacy details.
+                    Fail(correlationId, ProxyErrorCode.StopFailed, "Proxy cleanup failed.");
+                    return;
                 }
             }
 
+            _processExitMonitorCancellation = null;
+            _activeConfiguration = null;
             Fail(correlationId, code, message);
         }
         finally

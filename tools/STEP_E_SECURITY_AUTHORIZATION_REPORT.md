@@ -9,7 +9,9 @@ Repositories ที่ตรวจ:
 
 สถานะเอกสาร: **ACTION REQUIRED — SECURITY BLOCKER FOR STEP E PRODUCTION HOST**
 
-> เอกสารนี้เป็น sanitized source of truth สำหรับ authorization boundary ของ Step E ไม่มี endpoint, access token, proxy credential, private key, customer identifier หรือ raw runtime configuration
+> เอกสารนี้เป็น supporting sanitized threat-model/remediation report สำหรับ authorization boundary ของ Step E ไม่มี endpoint, access token, proxy credential, private key, customer identifier หรือ raw runtime configuration
+>
+> สถานะรวมและลำดับงาน canonical อยู่ที่ `D:\Audit Neko project\Proxy core to do\README.md`; Step D ในรายงานนี้เป็น historical pre-authorization evidence
 
 ---
 
@@ -31,7 +33,7 @@ Step D พิสูจน์แล้วว่า ProcessMode สามารถ
 
 | Boundary | Result |
 |---|---|
-| Step D ProcessMode/runtime/gameplay | PASS |
+| Step D ProcessMode/runtime/gameplay | HISTORICAL PASS — pre-authorization evidence |
 | Launcher normal-flow authorization | PARTIAL — implemented but client-bypassable |
 | Core start authorization | FAIL — no server-verifiable proof yet |
 | Same-user IPC isolation | PARTIAL — transport isolation only |
@@ -554,7 +556,7 @@ Signing, installer และ clean-machine release approval remain downstream re
 - [ ] Backend permit issuance implemented and deployed in an approved environment
 - [ ] Backend validates account/product/license/installation/session/heartbeat server-side
 - [ ] private signing key exists only in approved secret custody
-- [ ] Core challenge is cryptographically random, one-use and bounded
+- [x] Core challenge primitive is cryptographically random, one-use and bounded (internal checkpoint; protocol/config/permit binding ยังไม่ complete)
 - [ ] Core strictly verifies signature/claims/time/challenge/config hash
 - [ ] every authorization failure produces engine start count 0
 - [ ] no production alternate entry point bypasses authorization

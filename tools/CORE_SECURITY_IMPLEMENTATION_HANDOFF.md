@@ -14,11 +14,13 @@ Branch ที่ตรวจ: `feature/neko-headless`
 
 > เอกสารนี้เป็น sanitized source of truth สำหรับทีมที่รับช่วง implementation ความปลอดภัยฝั่ง Core ไม่มี production endpoint, access token, proxy credential, private key, customer identifier หรือ raw runtime configuration
 
+> สถานะรวมและลำดับงาน canonical อยู่ที่ `D:\Audit Neko project\Proxy core to do\README.md` เอกสารนี้เป็น supporting Core security handoff และต้องอ่านโดยผูกกับ revision ที่ canonical tracker ระบุ
+
 ---
 
 ## 1. Executive handoff
 
-ProcessMode/runtime integration ของ Step D ผ่านกับ `pso2.exe` และ gameplay จริงแล้ว แต่ production authorization ของ Step E ยังไม่พร้อม
+ProcessMode/runtime integration ของ Step D เคยผ่านกับ `pso2.exe` และ gameplay จริงในรอบ pre-authorization แต่หลักฐาน historical นั้นไม่ reproduce production authorization ของ Step E ซึ่งยังไม่พร้อม
 
 Core checkpoint ปัจจุบันมีสิ่งต่อไปนี้:
 
@@ -28,11 +30,10 @@ Core checkpoint ปัจจุบันมีสิ่งต่อไปนี�
 - missing authorization คืน typed `AuthorizationRequired`
 - focused test ยืนยัน authorization failure ทำให้ engine start count เป็นศูนย์
 - เริ่มมี typed authorization error taxonomy
+- C5 worktree slice หยุด engine เมื่อ target หายหลัง engine start แต่ก่อน Running พร้อม regression `StartCount=1`/`StopCount=1`; broader coordinator/monitor/no-orphan gates ยังไม่ complete
 
 Core checkpoint ปัจจุบันยังขาด:
 
-- Core-generated cryptographic challenge
-- expiry และ atomic one-attempt challenge consumption
 - canonical configuration hash implementation/fixtures
 - strict RS256 JWT verifier
 - pinned public-key ring และ rotation policy implementation
@@ -116,7 +117,7 @@ Core ห้ามใช้สิ่งต่อไปนี้เป็น autho
 - `IProxyStartAuthorizer.AuthorizeAsync` ยังรับเพียง `ProxyStartRequest`
 - `ProxyStartRequest` ยังไม่มี permit/challenge authorization envelope
 - default deny object ยังไม่ใช่ production verifier
-- exception mapping จาก authorizerยังต้อง harden ให้ไม่เปิด raw detail
+- authorizer exception และ generic runtime start/stop exception ถูก map เป็น allow-listed typed message แล้ว; crypto/parser paths ในอนาคตยังต้องรักษา policy เดียวกัน
 - ยังไม่มี proof ว่า alternate future host entry pointทุกทางใช้ seam นี้
 
 ### 4.2 Host protocol checkpoint
@@ -544,7 +545,7 @@ Core taxonomyขั้นต่ำ:
 - authorization failureไม่ควรเผย token fragment, decoded header/claim หรือ expected value
 - status sink/loggingต้องใช้ error codeและ sanitized static message
 
-ต้อง review `HeadlessRuntimeCoordinator` generic exception pathเพื่อรับรองว่า authorizer/crypto exceptionไม่ทำ secretหลุดผ่าน `e.Message`
+`HeadlessRuntimeCoordinator` map authorizer exception เป็น `AuthorizationUnavailable` และ generic start/stop exception เป็น allow-listed message แล้ว; permit verifier/parser ในอนาคตต้องมี sentinel regression แบบเดียวกันและห้ามส่ง `exception.Message`
 
 ---
 
@@ -847,7 +848,7 @@ security-contract/ or approved shared-fixture location
 4. ใช้ TDD implement challenge generation/expiry/atomic consume
 5. ใช้ TDD implement canonical serializer/hash
 6. ใช้ TDD implement bounded strict RS256 verifier/key ring
-7. harden authorizer exception/result sanitization
+7. รักษา authorizer/runtime exception sanitization ที่ verify แล้ว และเพิ่ม crypto/parser sentinel regressions เมื่อ implement verifier
 8. integrate authorized attemptที่ innermost runtime seam
 9. prove full authorization failure matrix engine count 0
 10. implement protocol v2 challenge + mandatory permit start
@@ -884,10 +885,10 @@ security-contract/ or approved shared-fixture location
 
 | Boundary | State |
 |---|---|
-| Step D ProcessMode/gameplay | PASS ตามรายงานเดิม |
+| Step D ProcessMode/gameplay | HISTORICAL PASS — pre-authorization evidence; ไม่ใช่ production auth PASS |
 | Core innermost authorization seam | PARTIAL — checkpoint มีแล้ว |
 | Default missing-authorization behavior | PARTIAL/VERIFIED — fail closed focused test |
-| Challenge lifecycle | NOT IMPLEMENTED |
+| Challenge lifecycle | PARTIAL/VERIFIED — primitive, monotonic expiry, replacement, atomic one-attempt, replay/concurrency tests; ยังไม่มี protocol/config/permit binding |
 | Canonical config binding | NOT IMPLEMENTED |
 | RS256 permit verification/key ring | NOT IMPLEMENTED |
 | Protocol v2 mandatory permit | NOT IMPLEMENTED |

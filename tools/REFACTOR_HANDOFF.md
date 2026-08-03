@@ -1,4 +1,6 @@
-# NekoProxyCore — Phase 2 refactor handoff
+﻿# NekoProxyCore — Refactor Handoff
+
+> **Historical checkpoint:** ตัวเลข `27/27` และสถานะ Step D ในเอกสารนี้เป็นหลักฐาน ณ checkpoint เดิม ไม่ใช่ test count/current authorization readiness. สถานะรวม canonical อยู่ที่ `D:\Audit Neko project\Proxy core to do\README.md` และ suite รอบ `Core-S0-Producer-01` มี 64 tests; 51 tests เป็น C1 historical checkpoint
 
 อัปเดต: 2026-08-03
 

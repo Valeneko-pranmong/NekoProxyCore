@@ -1,4 +1,8 @@
-# ProcessMode Integration Test Report — Step D Final Handoff
+﻿# ProcessMode Integration Test Report — Step D Final Handoff
+
+> **ขอบเขตหลักฐาน:** รายงานนี้เป็น historical pre-authorization evidence ของ accepted Step D run เท่านั้น ไม่ใช่หลักฐานว่า current default-deny runner หรือ production Launcher → Core authorization ผ่าน
+>
+> ที่ revision `8d19f36` current `NekoProxyCore.IntegrationRunner` สร้าง `HeadlessRuntimeCoordinator` ผ่าน default constructor ซึ่งใช้ `AuthorizationRequiredStartAuthorizer`; start จึง fail closed และ runner ปัจจุบันไม่ reproduce trace/PASS ของ accepted Step D run นี้
 
 วันที่ทดสอบ: 2026-08-03
 Workspace: `D:\NekoProxyCore`
@@ -218,7 +222,8 @@ self-cleanup ที่ไม่ผูก lifecycle กับ local SSH process �
 
 - Traffic-window/packaging focused tests: `3/3` passed
 - Focused ProcessMode/launcher testsจาก verification ก่อนหน้า: `8/8` passed
-- Full `Tests/Tests.csproj` suiteจาก verification ก่อนหน้า: `27/27` passed
+- Full `Tests/Tests.csproj` suite ณ accepted Step D run: `27/27` passed (historical count)
+- C1 historical checkpoint มี 51 tests และ observed flaky run `50/51`; รอบ `Core-S0-Producer-01` มี 64 tests, full suiteผ่าน `64/64` และ C5 process-exit stability ผ่าน `20/20` โดยยังแยกจาก accepted Step D evidence นี้
 - `NekoProxyCore.IntegrationRunner` Release `win-x64`: build succeeded, 0 errors
 - Official `-PrepareOnly`: `PREPARE_ONLY result=ready`
 - `git diff --check`: ผ่าน; มีเพียง LF/CRLF conversion warnings
