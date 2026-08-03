@@ -136,6 +136,19 @@ Developer environment/real MSBuild และตรวจ SDK/targeting pack ใ�
 อย่ารายงาน solution/release build ว่าผ่านจนกว่าจะแก้สองข้อข้างต้นและบันทึก
 คำสั่ง, tool versions, artifact path และ SHA-256 ใหม่
 
+## Step E security authorization gate
+
+ก่อนดำเนิน production headless host/Launcher integration ให้อ่าน
+`tools/STEP_E_SECURITY_AUTHORIZATION_REPORT.md` เป็น source of truth ด้าน authorization.
+ทุกการเริ่ม Core ต้องได้รับ short-lived Backend-signed permit แบบ online-only ซึ่งผูกกับ
+Core-generated one-use challenge, active account/license/installation/session/heartbeat และ
+canonical start configuration. `CurrentUserOnly` named pipe และการตรวจ `pso2.exe` เป็นคนละ
+precondition และใช้แทน authorization ไม่ได้
+
+Step D ProcessMode/gameplay PASS ยังคงมีผล แต่ Step E production host จัดเป็น
+**SECURITY BLOCKED** จนกว่า Backend/Core/Launcher/Proxy Server จะปิด permit, replay,
+revocation และ static reusable proxy credential gates ตามรายงานดังกล่าว
+
 ## ไฟล์ handoff
 
 ```text
@@ -144,6 +157,8 @@ tools/
 ├─ REFACTOR_HANDOFF.md         # Phase 2 checkpoint และ flow ที่ต้องทำต่อ
 ├─ NEKOPROXYCORE_BUILD_PLAN.md # แผนผลิตภัณฑ์/build ระยะยาว
 ├─ TESTER_HANDOFF.md           # ขั้นตอน build, contract test และ integration gate สำหรับทีม Tester
+├─ PROCESSMODE_TEST_REPORT.md  # Step D real gameplay/traffic evidence
+├─ STEP_E_SECURITY_AUTHORIZATION_REPORT.md # Backend/Security actions และ revised Step E
 ├─ neko-proxycore-preflight.ps1
 └─ run-processmode-integration.ps1 # official sanitized integration launcher
 ```

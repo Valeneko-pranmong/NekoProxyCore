@@ -3,7 +3,7 @@ using NekoProxyCore.Legacy;
 using NekoProxyCore.Windows;
 using Netch;
 using Netch.Controllers;
-using Netch.Utils;
+
 
 namespace NekoProxyCore.IntegrationRunner;
 
@@ -21,17 +21,11 @@ internal static class Program
         var serverReference = args.ElementAtOrDefault(2) ?? DefaultServerReference;
         var runtimeRoot = AppContext.BaseDirectory;
 
-        Directory.SetCurrentDirectory(runtimeRoot);
-        Environment.SetEnvironmentVariable(
-            "PATH",
-            $"{Environment.GetEnvironmentVariable("PATH")};{Path.Combine(runtimeRoot, "bin")}");
-        Directory.CreateDirectory(Path.Combine(runtimeRoot, "logging"));
-
         IProxyRuntime? runtime = null;
         try
         {
             var trafficWindowSeconds = ParseTrafficWindowSeconds(args.ElementAtOrDefault(3));
-            await LoadRuntimeStateAsync(runtimeRoot).ConfigureAwait(false);
+            await NetchRuntimeBootstrap.InitializeAsync(runtimeRoot).ConfigureAwait(false);
             Console.WriteLine(
                 $"CONFIG profiles={Global.Settings.Profiles.Count} " +
                 $"servers={Global.Settings.Server.Count} modes={Global.Modes.Count}");
@@ -123,24 +117,6 @@ internal static class Program
                 "The traffic verification window is invalid.");
     }
 
-    private static async Task LoadRuntimeStateAsync(string runtimeRoot)
-    {
-        await Configuration.LoadAsync().ConfigureAwait(false);
-        Global.Modes.Clear();
-        var modeRoot = Path.Combine(runtimeRoot, "mode");
-        foreach (var file in Directory.EnumerateFiles(modeRoot, "*", SearchOption.AllDirectories))
-        {
-            try
-            {
-                Global.Modes.Add(ModeHelper.LoadMode(file));
-            }
-            catch (NotSupportedException)
-            {
-                // ModeHelper can encounter unrelated mode files. ProcessMode resolution below
-                // remains authoritative and returns a typed configuration error if no match exists.
-            }
-        }
-    }
 
     private static async Task BestEffortStopAsync(IProxyRuntime? runtime)
     {

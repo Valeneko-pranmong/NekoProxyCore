@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <TargetFrameworks>net6.0;net6.0-windows</TargetFrameworks>
+    <SelfContained>false</SelfContained>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
@@ -10,15 +11,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NekoProxyCore.Core\NekoProxyCore.Core.csproj" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(TargetFramework)' == 'net6.0'">
-    <Compile Remove="NetchProcessModeSessionResolver.cs" />
-    <Compile Remove="NetchRuntimeBootstrap.cs" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(TargetFramework)' == 'net6.0-windows'">
-    <ProjectReference Include="..\Netch\Netch.csproj" />
   </ItemGroup>
 
 </Project>

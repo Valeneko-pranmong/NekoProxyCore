@@ -11,6 +11,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NekoProxyCore.Core\NekoProxyCore.Core.csproj" />
+    <ProjectReference Include="..\NekoProxyCore.Host\NekoProxyCore.Host.csproj" />
     <ProjectReference Include="..\NekoProxyCore.Legacy\NekoProxyCore.Legacy.csproj" />
     <ProjectReference Include="..\NekoProxyCore.Windows\NekoProxyCore.Windows.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.2.0" />
