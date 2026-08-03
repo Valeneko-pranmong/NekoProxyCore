@@ -1,15 +1,21 @@
 # NekoProxyCore — handoff เริ่มจากจุดนี้
 
-อัปเดต: 2026-08-02 · branch งาน: `feature/neko-headless` · baseline ที่ห้ามแก้:
+อัปเดต: 2026-08-03 · branch งาน: `feature/neko-headless` · baseline ที่ห้ามแก้:
 `baseline/netch-1.9.7` (`99480e99c3f5f4b0f6c4a32fdbbb4911be2a3687`)
 
 ## สถานะจริงของรอบนี้
 
-Phase 2B, lifecycle seam ต้นทางของ 2C, concrete process resolver (Step C) และ
-source implementation ของ Step D ถูกเพิ่มแล้ว โดย Step D ผ่าน build และ contract-test
-verification ใน worktree นี้แล้ว. อย่างไรก็ตาม ยัง **ไม่ใช่** headless runtime ที่ยืนยัน
-การเชื่อมกับ Netch/driver/traffic จริง เพราะ sanitized PSO2 ProcessMode integration test
-ยังรอ PSO2 ที่กำลังทำงาน และยังไม่มี `NekoProxyCore.exe` สำหรับ release.
+Phase 2B, lifecycle seam ต้นทางของ 2C, concrete process resolver (Step C) และ Step D
+ผ่านแล้ว. วันที่ 2026-08-03 official ProcessMode runner ผ่าน start → steady `Running` →
+local SOCKS → traffic window 600 วินาที → stop/cleanup กับ `pso2.exe` จริง และคืน
+`RUNNER exit=0`. Human gameplay verification เข้า `Central City` online lobby และ
+server-side Shadowsocks TCP/UDP counters เพิ่มขึ้นระหว่าง gameplay ตาม
+[PROCESSMODE_TEST_REPORT.md](PROCESSMODE_TEST_REPORT.md).
+
+**Step D full integration gate เป็น PASS และเริ่ม Step E development ได้**. ข้อความ static
+`TRAFFIC_GATE result=RequiresTargetVerification` ของ runner ถูกปิดด้วย external evidence
+ในรายงาน ไม่ใช่การ hard-code PASS. ยังไม่มี `NekoProxyCore.exe` หรือ production release;
+downstream build/IPC/package/signing/clean-machine gates ยังเปิดอยู่
 
 - เพิ่ม assembly ที่ไม่มี WinForms: `NekoProxyCore.Core/`
 - มี `ProxyConfiguration`, `ProxyStartRequest`, `ProxyStatusKind`, `ProxyError`,
@@ -18,16 +24,16 @@ verification ใน worktree นี้แล้ว. อย่างไรก็�
 - `HeadlessRuntimeCoordinator` มี start/stop/status, idempotent start/stop,
   cancellation, timeout และ typed/sanitized error
 - Unit tests ใช้ fake process resolver/engine และ fixture identifier ที่ไม่มี
-  credential; รวม legacy lifecycle, integration packaging และ MainController regression
-  tests แล้วผ่าน `25/25`
+  credential; full `Tests/Tests.csproj` suite ล่าสุดผ่าน `27/27`
 - เพิ่ม concrete `NekoProxyCore.Windows/WindowsProcessResolver.cs` ที่ใช้
-  `Process.Exited`/process handle และรองรับ cancellation แล้ว
+  `Process.Exited`/process handle, รองรับ cancellation และ fallback แบบ Windows event-based
+  เมื่อ protected process ปฏิเสธ process handle
 - เพิ่ม `NekoProxyCore.Legacy/` และ `NetchProcessModeEngine` พร้อม runtime-only
   `profile-N`/`server-N` mapping, typed status sink และ fake lifecycle tests
 - `MainController`/`NFController` เริ่มใช้ injected `IProxyStatusSink`; UI callback
   อยู่ใน `MainFormProxyStatusSink` แทนการเรียกจาก controller
-- เพิ่ม official sanitized integration runner/launcher แล้ว แต่ยังไม่มี IPC หรือผล
-  PSO2/network-driver integration จริงจนกว่าจะรันกับ target process ที่อนุมัติ
+- Official sanitized integration runner/launcher ผ่าน lifecycle/local-SOCKS และ target
+  traffic verification กับ target จริงแล้ว; IPC/headless production host เป็นงาน Step E
 
 ทีม Tester ให้ใช้ [TESTER_HANDOFF.md](TESTER_HANDOFF.md) เป็น source of truth สำหรับ
 คำสั่ง build/test, official runner, exit codes และเกณฑ์ PASS/FAIL/BLOCKED ส่วนทีมพัฒนา

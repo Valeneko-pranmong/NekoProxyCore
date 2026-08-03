@@ -30,6 +30,7 @@ internal static class Program
         IProxyRuntime? runtime = null;
         try
         {
+            var trafficWindowSeconds = ParseTrafficWindowSeconds(args.ElementAtOrDefault(3));
             await LoadRuntimeStateAsync(runtimeRoot).ConfigureAwait(false);
             Console.WriteLine(
                 $"CONFIG profiles={Global.Settings.Profiles.Count} " +
@@ -64,6 +65,15 @@ internal static class Program
             var socksStatus = await MainController.HttpConnectAsync(probeTimeout.Token).ConfigureAwait(false);
             Console.WriteLine($"SOCKS_PROBE success={socksStatus.HasValue}");
 
+            var verificationStatus = steady;
+            if (trafficWindowSeconds > 0)
+            {
+                Console.WriteLine($"TRAFFIC_WINDOW status=Ready durationSeconds={trafficWindowSeconds}");
+                await Task.Delay(TimeSpan.FromSeconds(trafficWindowSeconds)).ConfigureAwait(false);
+                verificationStatus = await runtime.GetStatusAsync().ConfigureAwait(false);
+                Console.WriteLine($"TRAFFIC_WINDOW status=Complete runtime={verificationStatus.Status}");
+            }
+
             var stop = await runtime.StopAsync().ConfigureAwait(false);
             Console.WriteLine(
                 $"STOP success={stop.Succeeded} status={stop.Status} " +
@@ -77,7 +87,7 @@ internal static class Program
             Console.WriteLine($"CLEANUP controllers={(controllersCleared ? "clear" : "active")}");
             Console.WriteLine("TRAFFIC_GATE result=RequiresTargetVerification");
 
-            return steady.Status == ProxyStatusKind.Running &&
+            return verificationStatus.Status == ProxyStatusKind.Running &&
                    socksStatus.HasValue &&
                    stop.Succeeded &&
                    repeatedStop.Succeeded &&
@@ -99,6 +109,18 @@ internal static class Program
         {
             await BestEffortStopAsync(runtime).ConfigureAwait(false);
         }
+    }
+
+    private static int ParseTrafficWindowSeconds(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return 0;
+
+        return int.TryParse(value, out var seconds) && seconds is >= 0 and <= 900
+            ? seconds
+            : throw new ProxyRuntimeException(
+                ProxyErrorCode.InvalidConfiguration,
+                "The traffic verification window is invalid.");
     }
 
     private static async Task LoadRuntimeStateAsync(string runtimeRoot)

@@ -1,6 +1,6 @@
 # NekoProxyCore — Phase 2 refactor handoff
 
-อัปเดต: 2026-08-02
+อัปเดต: 2026-08-03
 
 เอกสารนี้บันทึก checkpoint ที่ตรวจแล้วสำหรับทีมถัดไปที่แยก runtime/network
 engine ออกจาก Netch WinForms เดิม ให้เริ่มจาก [HANDOFF.md](HANDOFF.md) และรักษา
@@ -17,12 +17,13 @@ product contract ด้านล่างก่อนเปลี่ยน netwo
 | Remote | `origin=Valeneko-pranmong/NekoProxyCore`, `upstream=netchx/netch` |
 | Preflight ล่าสุด | `PASS=34, WARN=3, FAIL=0` (exit `2` จาก warning เท่านั้น) |
 | Core build | `NekoProxyCore.Core` Release ผ่าน, 0 warnings |
-| Contract/lifecycle + integration packaging/MainController regression tests | `dotnet test Tests/Tests.csproj -c Release --no-restore`: 25 passed |
+| Contract/lifecycle + integration packaging/MainController regression tests | `dotnet test Tests/Tests.csproj -c Release --no-restore`: 27 passed |
 | Windows adapter build | `NekoProxyCore.Windows` Release ผ่าน, 0 warnings |
 
-> สถานะ worktree วันที่ 2026-08-02: Step D ผ่าน build และ contract-test verification
-> ตามหลักฐานด้านล่างแล้ว แต่ยัง **ไม่ใช่** PSO2/redirector integration test จริง.
-> ห้ามเริ่ม Step E หรืออ้างว่า redirector ส่ง traffic ได้จนกว่าจะปิด integration gate.
+> สถานะ worktree วันที่ 2026-08-03: Step D full ProcessMode integration gate ผ่านแล้ว
+> (`STEADY status=Running`, `SOCKS_PROBE success=True`, traffic window 600 วินาที,
+> online lobby/gameplay และ server-side Shadowsocks counters, `RUNNER exit=0`).
+> เริ่ม Step E development ได้; production release gates ยังเปิดอยู่
 
 Worktree ใน checkpoint นี้ยังไม่สะอาดโดยตั้งใจ: มี `NekoProxyCore.Core/`,
 `NekoProxyCore.Windows/`, `Tests/HeadlessRuntimeTests.cs`, `Netch.sln`,
@@ -208,7 +209,7 @@ safe process-name validation ผลทดสอบ resolver อยู่ใน�
   GeoLite2 download ที่ยังไม่ reproducible
 - `dotnet` `6.0.428`: build `NekoProxyCore.Core` และ `NekoProxyCore.Windows`
   แบบ Release ผ่านโดยไม่มี warning; `dotnet test Tests/Tests.csproj -c Release
-  --no-restore` ผ่าน `25/25` (warning `SYSLIB0021` มีอยู่เดิมใน `Tests/Global.cs`)
+  --no-restore` ผ่าน `27/27` (warning `SYSLIB0021` มีอยู่เดิมใน `Tests/Global.cs`)
 - Visual Studio Developer environment / MSBuild `17.14.51` build
   `NekoProxyCore.Legacy/NekoProxyCore.Legacy.csproj` ด้วย `Configuration=Release`,
   `Platform=x64` ผ่านทั้ง `net6.0` และ `net6.0-windows`; เพื่อให้ MSBuild พบ SDK ที่
@@ -224,10 +225,10 @@ safe process-name validation ผลทดสอบ resolver อยู่ใน�
   - `NekoProxyCore.Legacy/bin/x64/Release/net6.0-windows/NekoProxyCore.Legacy.dll` —
     `57BA019C56D6A1DF4217511978106F18E6E5379B0AA14EDB69F8331C9CAD370D`
 
-PSO2 integration ยังเป็น blocker: เครื่องนี้มี `netfilter2` driver ทำงานอยู่ แต่ไม่พบ
-process `pso2` หรือ `pso2_bin`; จึงไม่มีทางเริ่ม→running→stop กับเกมจริงโดยไม่สร้าง
-fixture หรือส่ง credential. ต้องรัน gate นี้เมื่อมี PSO2 ที่ผู้ใช้เปิดอยู่และใช้เฉพาะ
-opaque `profile-N`/`server-N` ที่มีอยู่ใน runtime.
+ข้อจำกัดนี้ถูกปิดใน accepted run วันที่ 2026-08-03: ผู้ใช้เปิด `pso2.exe` จริง, runner
+เริ่มหลังพบ target, คง `Running` ระหว่าง online gameplay และยืนยัน traffic ด้วย
+server-side Shadowsocks counters โดยใช้ opaque `profile-N`/`server-N` เท่านั้น ดู
+[PROCESSMODE_TEST_REPORT.md](PROCESSMODE_TEST_REPORT.md).
 
 เพิ่ม official runner ที่ `NekoProxyCore.IntegrationRunner/` และ launcher ที่
 `tools/run-processmode-integration.ps1` แล้ว โดย pin `win-x64`, stage RID-specific
@@ -236,16 +237,18 @@ Windows runtime DLL ทุกไฟล์ใต้ `runtimes/win/lib/net6.0`, �
 missing-process check คืน exit `20` โดยไม่เหลือ temporary directory. รายละเอียดการรัน
 จริงและเกณฑ์ผลลัพธ์อยู่ใน [TESTER_HANDOFF.md](TESTER_HANDOFF.md).
 
-### Handoff ให้ทีมถัดไป — ปิด verification ของ Step D ก่อน Step E
+### Handoff ให้ทีมถัดไป — เริ่ม Step E หลัง Step D PASS
 
 1. ติดตั้งหรือเปิด shell ที่มี .NET 6 SDK แล้วรัน `dotnet restore Tests/Tests.csproj`
    ก่อน แล้ว build `NekoProxyCore.Core`, `NekoProxyCore.Legacy` ทั้งสอง target และ
    `Tests/Tests.csproj`
 2. ยืนยันว่า legacy Windows target build ได้ใน Visual Studio developer environment
    โดยไม่แก้ PcapController/TUNController เพื่อหลบ build error
-3. รัน `tools/run-processmode-integration.ps1 -PrepareOnly` แล้วใช้ official launcher
-   รัน sanitized PSO2 ProcessMode start → running → stop โดยไม่มี credential ใน argv/log
-4. บันทึก command, tool version, test result และ artifact hash ใหม่ก่อนเริ่ม Step E
+3. Step D full ProcessMode gate ผ่านแล้วตาม
+   [PROCESSMODE_TEST_REPORT.md](PROCESSMODE_TEST_REPORT.md): เข้า online lobby, สร้าง
+   gameplay load และยืนยัน server-side Shadowsocks counter delta โดยไม่เก็บ payload/credential
+4. เริ่ม Step E headless host/launcher boundary โดยรักษา opaque references, typed status,
+   bounded waits และ cleanup semantics จาก Step D
 
 Stop condition: หากต้องเพิ่ม `Global.MainForm`, WinForms, MessageBox, tray,
 console หรือส่ง secret ผ่าน argv/log ให้หยุดและออกแบบ seam ใหม่ก่อน
@@ -294,7 +297,7 @@ dotnet build NekoProxyCore.Windows/NekoProxyCore.Windows.csproj -c Release --no-
 Build succeeded. 0 Warning(s), 0 Error(s)
 
 dotnet test Tests/Tests.csproj -c Release --no-restore
-Passed: 25, Failed: 0, Skipped: 0
+Passed: 27, Failed: 0, Skipped: 0
 
 powershell.exe -File tools/run-processmode-integration.ps1 -PrepareOnly
 PREPARE runtime=win-x64 windowsRuntimeAssets=verified count=3
@@ -325,8 +328,9 @@ development artifacts ที่ตรวจแล้วมี Core, Windows, Leg
 integration runner `win-x64`; SHA-256 ของ DLL หลักอยู่ในหัวข้อหลักฐาน verification ของ
 Step D ด้านบน. Artifact เหล่านี้ถูก ignore และไม่ถูก commit
 
-ยังไม่มี production `NekoProxyCore.exe`, package, signing, SHA-256 release manifest,
-clean-machine evidence หรือ PSO2 target-traffic PASS ดังนั้นยังห้ามเริ่ม Step E/release
+ยังไม่มี production `NekoProxyCore.exe`, package, signing, SHA-256 release manifest หรือ
+clean-machine evidence. PSO2 target-traffic PASS แล้ว จึงเริ่ม Step E development ได้ แต่
+ยังห้ามประกาศ production release
 
 ## 6. Acceptance checklist สำหรับ handoff รอบหน้า
 
@@ -339,8 +343,10 @@ clean-machine evidence หรือ PSO2 target-traffic PASS ดังนั้�
 - [x] concrete process resolver แบบ event/handle-based
 - [x] legacy ProcessMode adapter build ได้ทั้งสอง target และ fake lifecycle contract
   tests ผ่านโดยไม่พา UI เข้าสู่ core
-- [ ] sanitized PSO2 ProcessMode start → running → stop integration test เพื่อยืนยันว่า
-  เรียก redirector จริง
+- [x] sanitized PSO2 ProcessMode start → steady running → local SOCKS → stop integration
+  ผ่านกับ target จริง
+- [x] target traffic verification: online gameplay พร้อม server-side Shadowsocks TCP/UDP
+  counter delta ใน controlled traffic window
 - [ ] headless host executable และ launcher adapter/IPC
 - [ ] ตัด `Global.MainForm` และ UI callback ออกจาก runtime path จริง
 - [ ] full native/managed build ผ่าน พร้อม tool versions/artifact SHA-256

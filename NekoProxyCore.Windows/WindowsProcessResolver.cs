@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.ComponentModel;
+using System.Management;
+using System.Runtime.Versioning;
 using NekoProxyCore.Core;
 
 namespace NekoProxyCore.Windows;
@@ -56,6 +58,24 @@ public sealed class WindowsProcessResolver : IProcessResolver
 
     private static async Task WaitForExitAsync(Process process, CancellationToken cancellationToken)
     {
+        try
+        {
+            await WaitForExitWithProcessEventAsync(process, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Win32Exception exception) when (exception.NativeErrorCode == 5)
+        {
+            // Protected processes can be enumerated but deny the process handle required by
+            // HasExited/EnableRaisingEvents. WMI deletion events preserve event-based cleanup
+            // without turning this expected access boundary into a runtime start failure.
+            if (!OperatingSystem.IsWindows())
+                throw;
+
+            await WaitForExitWithManagementEventAsync(process.Id, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task WaitForExitWithProcessEventAsync(Process process, CancellationToken cancellationToken)
+    {
         if (process.HasExited)
             return;
 
@@ -75,6 +95,51 @@ public sealed class WindowsProcessResolver : IProcessResolver
         finally
         {
             process.Exited -= onExited;
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static async Task WaitForExitWithManagementEventAsync(int processId, CancellationToken cancellationToken)
+    {
+        var query = new WqlEventQuery(
+            $"SELECT * FROM __InstanceDeletionEvent WITHIN 1 " +
+            $"WHERE TargetInstance ISA 'Win32_Process' AND TargetInstance.ProcessId = {processId}");
+        using var watcher = new ManagementEventWatcher(query);
+        var exited = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        EventArrivedEventHandler onExited = (_, _) => exited.TrySetResult(null);
+        watcher.EventArrived += onExited;
+        try
+        {
+            watcher.Start();
+            if (!IsProcessPresent(processId))
+                exited.TrySetResult(null);
+
+            await exited.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            watcher.EventArrived -= onExited;
+            try
+            {
+                watcher.Stop();
+            }
+            catch (ManagementException)
+            {
+                // The watcher can already be stopped during cancellation or WMI shutdown.
+            }
+        }
+    }
+
+    private static bool IsProcessPresent(int processId)
+    {
+        var processes = Process.GetProcesses();
+        try
+        {
+            return processes.Any(process => process.Id == processId);
+        }
+        finally
+        {
+            DisposeAll(processes);
         }
     }
 

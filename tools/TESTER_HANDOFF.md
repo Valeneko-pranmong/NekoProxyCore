@@ -1,6 +1,6 @@
 # NekoProxyCore — Tester handoff สำหรับ Step D
 
-อัปเดต: 2026-08-02
+อัปเดต: 2026-08-03
 Branch: `feature/neko-headless`
 Baseline ที่ห้ามแก้: `baseline/netch-1.9.7` / `99480e99c3f5f4b0f6c4a32fdbbb4911be2a3687`
 
@@ -12,15 +12,15 @@ Baseline ที่ห้ามแก้: `baseline/netch-1.9.7` / `99480e99c3f5f
 - Core และ Windows adapter Release build ผ่าน 0 warnings
 - Legacy adapter build ผ่านทั้ง `net6.0` และ `net6.0-windows` ด้วย Visual Studio
   MSBuild `17.14.51`
-- Contract/lifecycle, integration packaging และ MainController regressions ผ่าน `25/25`
+- Full `Tests/Tests.csproj` suite ล่าสุดผ่าน `27/27`
 
-ยังไม่ปิด Step D จนกว่าจะผ่าน sanitized PSO2 ProcessMode integration:
-
-`PSO2 process → ProcessMode start → Running → ProcessMode stop → Stopped`
-
-เครื่องที่ส่งต่องานมี `netfilter2` driver ทำงาน แต่ตอน handoff ไม่พบ `pso2.exe` หรือ
-`pso2_bin.exe` จึงยังไม่มีผล integration จริง ห้ามเปลี่ยนสถานะ blocker เป็น PASS โดย
-ใช้ fake process หรือ fixture แทน
+วันที่ 2026-08-03 Step D full ProcessMode integration gate ผ่านกับ `pso2.exe` จริง:
+lifecycle/local-SOCKS ผ่าน, runtime คง `Running` ครบ traffic window 600 วินาที, เข้า
+Character Select และ `Central City` online lobby, สร้าง gameplay load และยืนยัน
+server-side TCP/UDP Shadowsocks counter delta แล้ว ก่อน stop/stop ซ้ำและ cleanup สำเร็จ
+พร้อม `RUNNER exit=0`. ดูหลักฐาน sanitized ที่
+[PROCESSMODE_TEST_REPORT.md](PROCESSMODE_TEST_REPORT.md). **อนุมัติให้เริ่ม Step E ใน
+ขอบเขต development; production release gates ยังเป็นงานแยก**
 
 ## ข้อกำหนดความปลอดภัย
 
@@ -69,7 +69,7 @@ $dotnet = 'C:\Program Files\dotnet\dotnet.exe'
 & $dotnet test .\Tests\Tests.csproj -c Release --no-restore
 ```
 
-Acceptance: Core/Windows build สำเร็จ และ test result เป็น `25 passed, 0 failed`.
+Acceptance: Core/Windows build สำเร็จ และ test result ล่าสุดเป็น `27 passed, 0 failed`.
 `SYSLIB0021` จาก `Tests\Global.cs` เป็น warning เดิมที่ไม่เกี่ยวกับ Step D
 
 ## 3. Legacy Windows-target build
@@ -162,6 +162,8 @@ publish สำเร็จและ `windowsRuntimeAssets=verified`. ห้า�
    probe ผ่าน และไม่มี secret ใน status/error
 5. ตรวจ traffic path ของ target จริงตาม test case ที่อนุมัติแยกจาก local SOCKS probe
    (ห้ามใช้ packet capture ที่เก็บ payload หรือ credential)
+   Accepted Step D case คือเข้า online lobby/สร้าง gameplay load ขณะ ProcessMode `Running`
+   และตรวจ counter delta บน active Shadowsocks listener ที่จำกัด source เป็นเครื่องทดสอบ
 6. Runner ต้องได้ `Stopping → Stopped`, stop ซ้ำสำเร็จ และ controller cleanup เป็น
    `clear`
 7. Launcher ต้องคืน runner exit code จริง และลบ temporary runtime mirror ใน `finally`
@@ -177,7 +179,8 @@ publish สำเร็จและ `windowsRuntimeAssets=verified`. ห้า�
 - **BLOCKED**: ไม่มี PSO2 process, driver/native dependency ไม่พร้อม หรือไม่มี opaque
   profile/server ที่ผู้ใช้อนุมัติ — ห้ามรายงานเป็น PASS
 
-ขณะนี้สถานะที่คาดจากเครื่อง handoff คือ **BLOCKED: PSO2 process ไม่ได้ทำงาน**.
+สถานะล่าสุดคือ **Step D full ProcessMode integration gate PASS; external target traffic
+verification ผ่านด้วย server-side Shadowsocks counters**.
 
 ### Exit-code matrix ของ official launcher
 
@@ -186,7 +189,7 @@ publish สำเร็จและ `windowsRuntimeAssets=verified`. ห้า�
 | `0` | lifecycle/local SOCKS/stop/cleanup ผ่าน | ยังต้องตรวจ target traffic ก่อนสรุป PASS |
 | `20` | ไม่พบ target process | BLOCKED |
 | `21` | `netfilter2` ไม่ได้ Running | BLOCKED |
-| `22` | runner เกิน timeout 180 วินาทีและถูก terminate ทั้ง process tree | FAIL; ตรวจ orphan state ก่อนรันใหม่ |
+| `22` | runner เกิน bounded timeout (`TrafficWindowSeconds + 180` วินาที) และถูก terminate ทั้ง process tree | FAIL; ตรวจ orphan state ก่อนรันใหม่ |
 | `2` | runtime start ไม่สำเร็จ | FAIL |
 | `3` | steady state, SOCKS probe หรือ cleanup ไม่ครบ | FAIL |
 | `4` | typed `ProxyRuntimeException` | FAIL; รายงานเฉพาะ error code |
@@ -194,6 +197,10 @@ publish สำเร็จและ `windowsRuntimeAssets=verified`. ห้า�
 
 ถ้า output มี `TRAFFIC_GATE result=RequiresTargetVerification` ต้องทดสอบ traffic ของ
 target จริงต่อ แม้ launcher คืน `0`; launcher exit `0` เพียงอย่างเดียวไม่ปิด gate
+
+สำหรับ accepted run วันที่ 2026-08-03 ข้อความนี้ถูกปิดด้วย external verification ตาม
+`PROCESSMODE_TEST_REPORT.md`: gameplay ผ่านและ Shadowsocks TCP/UDP counters เพิ่มขึ้นใน
+controlled traffic window. ห้ามเปลี่ยนข้อความ runner เป็น PASS แบบ hard-code
 
 ## 6. สิ่งที่ต้องส่งกลับ
 
@@ -211,5 +218,6 @@ target จริงต่อ แม้ launcher คืน `0`; launcher exit `0`
 ห้ามสร้าง script ที่เขียน PASS trace/report แบบ hard-code และห้ามใช้
 `GenerateEvidence.ps1`, `IntegrationTestRun.log` หรือรายงานจากรอบก่อนเป็นหลักฐาน
 
-ห้ามเริ่ม Step E, สร้าง release package หรือประกาศว่าเชื่อม redirector จริง จนกว่า
-integration gate จะเป็น `PASS`.
+ห้ามเริ่ม Step E จนกว่า integration gate จะเป็น `PASS`. Gate นี้ผ่านแล้วตามรายงานวันที่
+2026-08-03 จึงเริ่ม Step E development ได้ แต่ยังห้ามสร้าง/อนุมัติ production release
+package จนกว่า downstream build, host/IPC, packaging, signing และ clean-machine gates จะผ่าน

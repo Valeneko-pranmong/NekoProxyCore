@@ -266,6 +266,24 @@ public sealed class HeadlessRuntimeTests
         }
     }
 
+    [TestMethod]
+    public async Task WindowsResolverCanObserveProtectedProcessWithoutFailingStartup()
+    {
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(250));
+        var resolver = new WindowsProcessResolver();
+
+        try
+        {
+            await resolver.WaitForExitAsync("System", cancellation.Token);
+            Assert.Fail("Expected protected process wait to be cancelled.");
+        }
+        catch (OperationCanceledException)
+        {
+            // A protected process cannot always expose a wait handle. The fallback must remain
+            // active until cancellation instead of failing the runtime monitor.
+        }
+    }
+
     private sealed class RecordingSink : IProxyStatusSink
     {
         public List<ProxyStatusEvent> Events { get; } = new();

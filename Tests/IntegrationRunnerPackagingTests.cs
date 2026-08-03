@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Xml.Linq;
@@ -70,7 +71,22 @@ public sealed class IntegrationRunnerPackagingTests
         Assert.IsFalse(script.Contains("[string]$RuntimeRoot", StringComparison.Ordinal));
         Assert.IsTrue(script.Contains("$RuntimeRoot = Join-Path $repositoryRoot 'Original setting'", StringComparison.Ordinal));
         Assert.IsTrue(script.Contains("WaitForExit($runnerTimeoutMilliseconds)", StringComparison.Ordinal));
+        Assert.IsTrue(script.Contains("$runnerProcess.WaitForExit()", StringComparison.Ordinal));
+        Assert.IsTrue(script.Contains("$runnerProcess.Refresh()", StringComparison.Ordinal));
+        Assert.IsTrue(script.Contains("[int]$runnerExitCode = $runnerProcess.ExitCode", StringComparison.Ordinal));
+        Assert.IsTrue(script.Contains("[int]$TrafficWindowSeconds = 300", StringComparison.Ordinal));
+        Assert.IsTrue(script.Contains("$TrafficWindowSeconds.ToString", StringComparison.Ordinal));
+        Assert.IsTrue(script.Contains("$runnerTimeoutMilliseconds = ($TrafficWindowSeconds + 180) * 1000", StringComparison.Ordinal));
         Assert.IsTrue(script.Contains("taskkill.exe /PID $runnerProcess.Id /T /F", StringComparison.Ordinal));
+
+        var runnerSource = File.ReadAllText(Path.Combine(repositoryRoot, "NekoProxyCore.IntegrationRunner", "Program.cs"));
+        Assert.IsTrue(runnerSource.Contains("TRAFFIC_WINDOW status=Ready", StringComparison.Ordinal));
+        Assert.IsTrue(runnerSource.Contains("TRAFFIC_WINDOW status=Complete", StringComparison.Ordinal));
+        Assert.IsTrue(runnerSource.Contains("trafficWindowSeconds", StringComparison.Ordinal));
+        Assert.IsTrue(
+            runnerSource.IndexOf("try", StringComparison.Ordinal) <
+            runnerSource.IndexOf("ParseTrafficWindowSeconds(args.ElementAtOrDefault(3))", StringComparison.Ordinal),
+            "Traffic-window validation must execute inside the sanitized runner exception boundary.");
         Assert.IsFalse(script.Contains("-Wait `", StringComparison.Ordinal));
         Assert.IsTrue(script.Contains("RedirectStandardOutput", StringComparison.Ordinal));
         Assert.IsTrue(script.Contains("$allowedOutputPattern", StringComparison.Ordinal));
@@ -78,6 +94,38 @@ public sealed class IntegrationRunnerPackagingTests
         Assert.IsTrue(script.Contains("Remove-Item -LiteralPath $temporaryRoot -Recurse -Force", StringComparison.Ordinal));
         Assert.IsFalse(script.Contains("GenerateEvidence", StringComparison.Ordinal));
         Assert.IsFalse(script.Contains("PASS_REPORT", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void PowerShellProcessExitCodeProbePropagatesChildFailure()
+    {
+        var probe = string.Join(
+            "; ",
+            "$process = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d', '/c', 'exit 3') -PassThru",
+            "if (-not $process.WaitForExit(10000)) { exit 90 }",
+            "$process.WaitForExit()",
+            "$process.Refresh()",
+            "$code = $process.ExitCode",
+            "Write-Output \"RUNNER exit=$code\"",
+            "exit $code");
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "powershell.exe",
+            Arguments = $"-NoProfile -NonInteractive -Command \"{probe.Replace("\"", "\\\"")}\"",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+
+        using var process = Process.Start(startInfo);
+        Assert.IsNotNull(process);
+        var output = process!.StandardOutput.ReadToEnd();
+        var error = process.StandardError.ReadToEnd();
+        Assert.IsTrue(process.WaitForExit(10000), "PowerShell exit-code probe timed out.");
+
+        Assert.AreEqual(3, process.ExitCode, error);
+        StringAssert.Contains(output, "RUNNER exit=3");
     }
 
     private static string FindRepositoryRoot()

@@ -20,6 +20,8 @@ param(
     [string]$ProfileReference = 'profile-0',
     [ValidatePattern('^server-[0-9]+$')]
     [string]$ServerReference = 'server-0',
+    [ValidateRange(0, 900)]
+    [int]$TrafficWindowSeconds = 300,
     [switch]$PrepareOnly
 )
 
@@ -34,8 +36,8 @@ $legacyOutput = Join-Path $repositoryRoot 'Netch\bin\x64\Release'
 $windowsRuntimeAssetDirectory = Join-Path $legacyOutput 'runtimes\win\lib\net6.0'
 $temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("NekoProcessModeIntegration-" + [Guid]::NewGuid().ToString('N'))
 $runtimeDirectories = @('data', 'mode', 'bin', 'i18n')
-$allowedOutputPattern = '^(CONFIG |EVENT |START |STEADY |SOCKS_PROBE |STOP |STOP_AGAIN |CLEANUP |TRAFFIC_GATE |FATAL )'
-$runnerTimeoutMilliseconds = 180000
+$allowedOutputPattern = '^(CONFIG |EVENT |START |STEADY |SOCKS_PROBE |TRAFFIC_WINDOW |STOP |STOP_AGAIN |CLEANUP |TRAFFIC_GATE |FATAL )'
+$runnerTimeoutMilliseconds = ($TrafficWindowSeconds + 180) * 1000
 
 function Assert-FileExists {
     param([string]$Path, [string]$Label)
@@ -124,7 +126,7 @@ try {
     $rawOutputPath = Join-Path $temporaryRoot 'runner.raw.log'
     $rawErrorPath = Join-Path $temporaryRoot 'runner.raw.err.log'
     $runnerProcess = Start-Process -FilePath $runnerPath `
-        -ArgumentList @($ProcessName, $ProfileReference, $ServerReference) `
+        -ArgumentList @($ProcessName, $ProfileReference, $ServerReference, $TrafficWindowSeconds.ToString([System.Globalization.CultureInfo]::InvariantCulture)) `
         -WorkingDirectory $temporaryRoot `
         -NoNewWindow `
         -PassThru `
@@ -136,7 +138,13 @@ try {
         Write-Output 'TIMEOUT runner=exceeded'
         exit 22
     }
-    $runnerExitCode = $runnerProcess.ExitCode
+
+    # The timed overload can return before redirected stream handling and the managed
+    # Process object have finalized. Complete the wait and refresh before reading ExitCode;
+    # otherwise Windows PowerShell can expose a null value that `exit` coerces to success.
+    $runnerProcess.WaitForExit()
+    $runnerProcess.Refresh()
+    [int]$runnerExitCode = $runnerProcess.ExitCode
 
     Get-Content -LiteralPath $rawOutputPath -ErrorAction SilentlyContinue | ForEach-Object {
         if ($_ -match $allowedOutputPattern) {
