@@ -519,12 +519,31 @@ Launcher heartbeat อย่างเดียวไม่ใช่ continuous a
 - missing authorization คืน typed `AuthorizationRequired`
 - focused test ยืนยัน authorization failure แล้ว engine start count เป็นศูนย์
 - typed authorization error taxonomy เริ่มเพิ่มแล้ว
-- **ยังไม่มี** Core-generated challenge store/endpoint
+- Core มี challenge primitive/lifecycle แล้ว: 256-bit cryptographic randomness, base64url,
+  monotonic expiryไม่เกิน 30 วินาที, one outstanding challenge, atomic one-attempt
+  consumption, replay rejection และ concurrency tests
+- **ยังไม่มี** protocol endpoint ที่ Launcher ใช้ขอ challenge
 - **ยังไม่มี** RS256 JWT verifier/public key ring
 - **ยังไม่มี** protocol v2 `challenge`/mandatory `permit` frame
 - Host protocol ปัจจุบันยังเป็น checkpoint version 1 และไม่ใช่ production integration contract
 - production host/named pipe executable ยังไม่ freeze
+- generic Core start/stop failures map เป็น allow-listed typed message และไม่ส่ง raw
+  runtime exception detail ออกนอก boundary
 - Backend permit issuance และ proxy short-lived credential ยังไม่ implemented/evidenced ใน repository นี้
+
+สถานะ Launcher หลังทำ S1 scaffolding:
+
+- มี `AuthorizedCoreOrchestrator` และ protocol interfaces สำหรับ process/channel/permit/detector
+  โดยยังไม่กำหนด wire schema, endpoint, pipe name หรือ production timeout ที่ S0 ยังไม่ freeze
+- `OpaquePermit` ปิดค่าใน `str`/`repr`; permit เปิดค่าได้เฉพาะ direct transport boundary
+- มี exact `pso2.exe` target identity detector แบบ bounded/cancellable และตรวจ PID เดิมซ้ำ
+- orchestration เป็น single-flight, ตรวจ target ซ้ำก่อนส่ง start, ต้องได้ typed `Running`
+  เท่านั้น และ cleanup แบบ graceful-stop/owned-process kill fallback
+- `ApplicationController` ปฏิเสธ start ก่อนตรวจพบ `pso2.exe` แม้ auth/session ผ่านแล้ว
+- production composition ไม่ใช้ legacy `ProxyProcessManager`; ระหว่าง S0 ยังไม่ freeze จะใช้
+  fail-closed gateway และไม่ spawn Core
+- adapter scaffolding ยัง **ไม่ถูก wire production** เพราะ Backend permit issuance และ protocol v2
+  contract ยังไม่มี approved revision/fixtures
 
 ดังนั้นทีม Launcher สามารถเตรียม interfaces, state machine, sensitive-data handling และ test harness ตามเอกสารนี้ได้ แต่ **ห้ามเชื่อม production หรือสร้าง fallback ที่ bypass permit** ระหว่างรอ Core/Backend contract สมบูรณ์
 
@@ -810,11 +829,11 @@ security-contract/
 
 | Boundary | Current state | งานถัดไป | Owner |
 |---|---|---|---|
-| Innermost Core authorization seam | PARTIAL — fail-closed checkpoint มีแล้ว | เพิ่ม challenge/verifier tests และ implementation | Core |
-| Core challenge | NOT IMPLEMENTED | freeze schema แล้วทำ random/expiry/consume | Core |
+| Innermost Core authorization seam | PARTIAL/VERIFIED — fail-closed ก่อน runtime side effects | wire approved challenge/verifier หลัง S0 | Core |
+| Core challenge | PARTIAL/VERIFIED — primitive/lifecycle + expiry/one-use/replay/concurrency ทำแล้ว | freeze schema แล้วเพิ่ม protocol endpoint | Core |
 | RS256 verifier/key ring | NOT IMPLEMENTED | freeze keys/claims แล้วทำ strict verifier | Core + Security |
 | Protocol v2 host | NOT IMPLEMENTED | challenge/start/status/stop และ named pipe host | Core |
-| Launcher adapter | DESIGN/HANDOFF READY | implement interfaces/state machine/tests | Launcher |
+| Launcher adapter | PARTIAL/VERIFIED — interfaces, opaque permit, exact detector, single-flight orchestration และ cleanup tests ทำแล้ว; production fail closed | wire approved channel/Backend adapters หลัง S0 | Launcher |
 | Backend permit authority | NOT EVIDENCED | implement server validations/signer | Backend |
 | Proxy access enforcement | BLOCKED/UNVERIFIED | เลือกและ implement non-reusable access | Backend + Proxy Server |
 | Continuous authorization | POLICY TBD | freeze renewal/revocation SLA | Security + Backend + Core |

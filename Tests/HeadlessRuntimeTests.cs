@@ -268,7 +268,40 @@ public sealed class HeadlessRuntimeTests
         Assert.IsFalse(result.Error!.SafeMessage.Contains("sentinel-token", StringComparison.Ordinal));
         Assert.IsFalse(result.Error.SafeMessage.Contains("another-secret", StringComparison.Ordinal));
         Assert.IsFalse(result.Error.SafeMessage.Contains("uri-secret", StringComparison.Ordinal));
-        StringAssert.Contains(result.Error.SafeMessage, "[REDACTED]");
+        Assert.AreEqual("Proxy start failed.", result.Error.SafeMessage);
+    }
+
+    [TestMethod]
+    public async Task UnexpectedStartExceptionReturnsAllowListedMessage()
+    {
+        const string sentinel = "raw-runtime-detail-sentinel";
+        var engine = new FakeEngine { Exception = new InvalidOperationException(sentinel) };
+        var runtime = CreateAuthorizedRuntime(new ProcessModeController(new FakeProcessResolver(true), engine));
+
+        var result = await runtime.StartAsync(new ProxyStartRequest(
+            new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "fixture-pso2", "fixture-server")));
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(ProxyErrorCode.StartFailed, result.Error!.Code);
+        Assert.AreEqual("Proxy start failed.", result.Error.SafeMessage);
+        Assert.IsFalse(result.Error.SafeMessage.Contains(sentinel, StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public async Task UnexpectedStopExceptionReturnsAllowListedMessage()
+    {
+        const string sentinel = "raw-stop-detail-sentinel";
+        var engine = new FakeEngine { StopException = new InvalidOperationException(sentinel) };
+        var runtime = CreateAuthorizedRuntime(new ProcessModeController(new FakeProcessResolver(true), engine));
+        Assert.IsTrue((await runtime.StartAsync(new ProxyStartRequest(
+            new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "fixture-pso2", "fixture-server")))).Succeeded);
+
+        var result = await runtime.StopAsync();
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(ProxyErrorCode.StopFailed, result.Error!.Code);
+        Assert.AreEqual("Proxy stop failed.", result.Error.SafeMessage);
+        Assert.IsFalse(result.Error.SafeMessage.Contains(sentinel, StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -373,6 +406,8 @@ public sealed class HeadlessRuntimeTests
 
         public Exception? Exception { get; init; }
 
+        public Exception? StopException { get; init; }
+
         public int StartCount { get; private set; }
 
         public int StopCount { get; private set; }
@@ -401,6 +436,8 @@ public sealed class HeadlessRuntimeTests
             {
                 if (StopDelay > TimeSpan.Zero)
                     await Task.Delay(StopDelay, cancellationToken);
+                if (StopException is not null)
+                    throw StopException;
             }
             finally
             {

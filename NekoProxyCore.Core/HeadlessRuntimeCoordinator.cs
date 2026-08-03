@@ -103,9 +103,9 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
             {
                 return Fail(request.CorrelationId, e.Code, e.Message);
             }
-            catch (Exception e)
+            catch (Exception)
             {
-                return Fail(request.CorrelationId, ProxyErrorCode.StartFailed, e.Message);
+                return Fail(request.CorrelationId, ProxyErrorCode.StartFailed, "Proxy start failed.");
             }
         }
         finally
@@ -157,9 +157,9 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
             {
                 return Fail(correlationId, ProxyErrorCode.Timeout, "Proxy stop timed out.");
             }
-            catch (Exception e)
+            catch (Exception)
             {
-                return Fail(correlationId, ProxyErrorCode.StopFailed, e.Message);
+                return Fail(correlationId, ProxyErrorCode.StopFailed, "Proxy stop failed.");
             }
         }
         finally
