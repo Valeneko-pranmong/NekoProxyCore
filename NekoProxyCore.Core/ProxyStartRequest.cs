@@ -2,11 +2,18 @@ namespace NekoProxyCore.Core;
 
 public sealed class ProxyStartRequest
 {
-    public ProxyStartRequest(ProxyConfiguration configuration, string? correlationId = null, CancellationToken cancellationToken = default)
+    public ProxyStartRequest(
+        ProxyConfiguration configuration,
+        string? correlationId = null,
+        CancellationToken cancellationToken = default,
+        SensitivePermit? permit = null,
+        string? admittedChallenge = null)
     {
         Configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
         CorrelationId = ValidateCorrelationId(correlationId);
         CancellationToken = cancellationToken;
+        Permit = permit;
+        AdmittedChallenge = admittedChallenge;
     }
 
     public ProxyConfiguration Configuration { get; }
@@ -15,6 +22,12 @@ public sealed class ProxyStartRequest
     public string CorrelationId { get; }
 
     public CancellationToken CancellationToken { get; }
+
+    /// <summary>Opaque server-issued launch authorization; never render or persist this value.</summary>
+    public SensitivePermit? Permit { get; }
+
+    /// <summary>Challenge atomically consumed when the bounded start frame was admitted.</summary>
+    public string? AdmittedChallenge { get; }
 
     private static string ValidateCorrelationId(string? value)
     {

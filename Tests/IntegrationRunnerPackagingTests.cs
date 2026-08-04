@@ -57,6 +57,75 @@ public sealed class IntegrationRunnerPackagingTests
     }
 
     [TestMethod]
+    public void LegacyProjectDefinesHeadlessBuildWithoutUiResources()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var projectPath = Path.Combine(repositoryRoot, "Netch", "Netch.csproj");
+        var document = XDocument.Load(projectPath);
+
+        var headlessResources = document
+            .Descendants("ItemGroup")
+            .Where(item => string.Equals(
+                item.Attribute("Condition")?.Value,
+                "'$(HeadlessCoreBuild)' == 'true'",
+                StringComparison.Ordinal))
+            .Descendants("EmbeddedResource")
+            .ToArray();
+
+        Assert.IsTrue(
+            headlessResources.Any(item => item.Attribute("Remove")?.Value == "Properties\\Resources.resx"),
+            "Headless Core builds must exclude legacy UI resources that are not used by ProcessMode.");
+    }
+
+    [TestMethod]
+    public void ProductionHostContainsBoundedCurrentUserPipeServer()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var source = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "NekoProxyCore.Host",
+            "HeadlessControlServer.cs"));
+
+        Assert.IsTrue(source.Contains("PipeOptions.CurrentUserOnly", StringComparison.Ordinal));
+        Assert.IsTrue(source.Contains("ControlProtocol.MaxFrameBytes", StringComparison.Ordinal));
+        Assert.IsTrue(source.Contains("BinaryPrimitives.ReadUInt32BigEndian", StringComparison.Ordinal));
+        Assert.IsTrue(source.Contains("ControlCommand.Challenge", StringComparison.Ordinal));
+        Assert.IsTrue(source.Contains("ControlCommand.Start", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void ProductionHostBuildsAsHeadlessWinX64Executable()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var projectPath = Path.Combine(repositoryRoot, "NekoProxyCore.Host", "NekoProxyCore.Host.csproj");
+        var document = XDocument.Load(projectPath);
+
+        Assert.IsTrue(document.Descendants("OutputType").Any(item => item.Value == "WinExe"));
+        Assert.IsTrue(document.Descendants("AssemblyName").Any(item => item.Value == "NekoProxyCore"));
+        Assert.IsTrue(document.Descendants("RuntimeIdentifier").Any(item => item.Value == "win-x64"));
+        Assert.IsFalse(document.Descendants("UseWindowsForms").Any());
+    }
+
+    [TestMethod]
+    public void ProductionHostPublishStagesRequiredLegacyRuntimeFiles()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var projectPath = Path.Combine(repositoryRoot, "NekoProxyCore.Host", "NekoProxyCore.Host.csproj");
+        var document = XDocument.Load(projectPath);
+        var stagedFiles = document.Descendants("Content")
+            .Select(item => item.Attribute("Include")?.Value?.Replace('/', '\\'))
+            .Where(item => item != null)
+            .ToArray();
+
+        Assert.IsTrue(stagedFiles.Any(item => item!.Contains("Storage\\mode\\**\\*", StringComparison.Ordinal)));
+        Assert.IsTrue(stagedFiles.Any(item => item!.Contains("Storage\\i18n\\**\\*", StringComparison.Ordinal)));
+        Assert.IsTrue(stagedFiles.Any(item => item!.Contains("Netch\\bin\\x64\\Release\\*.dll", StringComparison.Ordinal)));
+        Assert.IsTrue(document.Descendants("Link").Any(item => item.Value.StartsWith("mode\\", StringComparison.Ordinal)));
+        Assert.IsTrue(document.Descendants("Link").Any(item => item.Value.StartsWith("bin\\", StringComparison.Ordinal)));
+        Assert.IsTrue(document.Descendants("CopyToPublishDirectory").Any(item => item.Value == "PreserveNewest"));
+    }
+
+    [TestMethod]
     public void IntegrationScriptPublishesAndCleansTemporaryRuntimeInFinally()
     {
         var repositoryRoot = FindRepositoryRoot();

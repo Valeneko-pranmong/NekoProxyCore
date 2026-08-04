@@ -1,5 +1,9 @@
 using System;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NekoProxyCore.Core;
 
@@ -8,6 +12,87 @@ namespace Tests;
 [TestClass]
 public sealed class PermitVerificationContractTests
 {
+    [TestMethod]
+    public void S0Rc1CanonicalConfigurationMatchesFrozenSyntheticFixture()
+    {
+        var configuration = new ProxyConfiguration(
+            ProxyModeKind.Process,
+            "pso2.exe",
+            "profile-0",
+            "server-0",
+            targetPid: 4242);
+        var serializer = new S0Rc1CanonicalConfigurationSerializer();
+
+        var bytes = serializer.Serialize(configuration).ToArray();
+        var text = Encoding.UTF8.GetString(bytes);
+        var digest = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+
+        Assert.AreEqual(
+            "protocolVersion=2\n" +
+            "mode=ProcessMode\n" +
+            "processName=pso2.exe\n" +
+            "targetPid=4242\n" +
+            "profileReference=profile-0\n" +
+            "serverReference=server-0\n",
+            text);
+        Assert.AreEqual("92ac70d0f9b100ba664f2bb205b2c042bc1058f779e94e759822d906ea880871", digest);
+    }
+
+    [TestMethod]
+    public void S0Rc1CanonicalConfigurationRequiresTargetBoundProcessMode()
+    {
+        var serializer = new S0Rc1CanonicalConfigurationSerializer();
+
+        Assert.ThrowsException<ArgumentException>(() => serializer.Serialize(
+            new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "profile-0", "server-0")));
+    }
+
+    [TestMethod]
+    public async Task ChallengePermitAuthorizerConsumesChallengeAndPassesOpaquePermitToVerifier()
+    {
+        var verifier = new RecordingPermitVerifier();
+        var authorizer = new ChallengePermitStartAuthorizer(verifier);
+        Assert.IsTrue(SensitivePermit.TryCreate("header.payload.signature", 4096, out var permit));
+        var request = new ProxyStartRequest(
+            new ProxyConfiguration(
+                ProxyModeKind.Process,
+                "pso2.exe",
+                "profile-0",
+                "server-0",
+                targetPid: 4242),
+            "0123456789abcdef0123456789abcdef",
+            permit: permit,
+            admittedChallenge: "admitted-challenge");
+
+        var error = await authorizer.AuthorizeAsync(request);
+
+        Assert.IsNull(error);
+        Assert.AreEqual("admitted-challenge", verifier.Challenge);
+        Assert.AreSame(permit, verifier.Permit);
+    }
+
+    [TestMethod]
+    public async Task ChallengePermitAuthorizerFailsClosedWithoutAdmittedChallenge()
+    {
+        var verifier = new RecordingPermitVerifier();
+        var authorizer = new ChallengePermitStartAuthorizer(verifier);
+        Assert.IsTrue(SensitivePermit.TryCreate("header.payload.signature", 4096, out var permit));
+        var request = new ProxyStartRequest(
+            new ProxyConfiguration(
+                ProxyModeKind.Process,
+                "pso2.exe",
+                "profile-0",
+                "server-0",
+                targetPid: 4242),
+            "0123456789abcdef0123456789abcdef",
+            permit: permit);
+
+        var replay = await authorizer.AuthorizeAsync(request);
+
+        Assert.AreEqual(ProxyErrorCode.AuthorizationRequired, replay!.Code);
+        Assert.AreEqual(0, verifier.CallCount);
+    }
+
     [TestMethod]
     public void SensitivePermitNeverRendersItsValue()
     {
@@ -84,5 +169,26 @@ public sealed class PermitVerificationContractTests
             new ContractFixtureIdentity(revisionSentinel, new byte[31]));
 
         Assert.IsFalse(exception.ToString().Contains(revisionSentinel, StringComparison.Ordinal));
+    }
+
+    private sealed class RecordingPermitVerifier : IPermitVerifier
+    {
+        public int CallCount { get; private set; }
+
+        public SensitivePermit? Permit { get; private set; }
+
+        public string? Challenge { get; private set; }
+
+        public Task<ProxyError?> VerifyAsync(
+            SensitivePermit permit,
+            ProxyConfiguration configuration,
+            string challenge,
+            CancellationToken cancellationToken)
+        {
+            CallCount++;
+            Permit = permit;
+            Challenge = challenge;
+            return Task.FromResult<ProxyError?>(null);
+        }
     }
 }

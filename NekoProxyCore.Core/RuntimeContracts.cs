@@ -25,11 +25,33 @@ public interface IProcessResolver
     Task WaitForExitAsync(string processName, CancellationToken cancellationToken);
 }
 
+/// <summary>Resolves the exact PID/name pair bound into S0 authorization material.</summary>
+public interface IExactProcessResolver
+{
+    Task<bool> IsExactProcessRunningAsync(
+        string processName,
+        uint targetPid,
+        CancellationToken cancellationToken);
+
+    Task WaitForExactProcessExitAsync(
+        string processName,
+        uint targetPid,
+        CancellationToken cancellationToken);
+}
+
 public interface IProxyModeController
 {
     Task StartAsync(ProxyConfiguration configuration, CancellationToken cancellationToken);
 
     Task StopAsync(CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// Optional innermost preflight capability invoked after authorization and before Starting is published.
+/// </summary>
+public interface IAuthorizedStartPrecondition
+{
+    Task VerifyAsync(ProxyConfiguration configuration, CancellationToken cancellationToken);
 }
 
 /// <summary>

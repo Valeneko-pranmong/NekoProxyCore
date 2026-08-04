@@ -1,7 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>NekoProxyCore</AssemblyName>
     <TargetFrameworks>net6.0;net6.0-windows</TargetFrameworks>
+    <RuntimeIdentifier Condition="'$(TargetFramework)' == 'net6.0-windows'">win-x64</RuntimeIdentifier>
+    <PlatformTarget>x64</PlatformTarget>
     <SelfContained>false</SelfContained>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -11,6 +15,35 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NekoProxyCore.Core\NekoProxyCore.Core.csproj" />
+    <ProjectReference Include="..\NekoProxyCore.Windows\NekoProxyCore.Windows.csproj" />
+    <ProjectReference Include="..\NekoProxyCore.Legacy\NekoProxyCore.Legacy.csproj" />
+    <ProjectReference Condition="'$(TargetFramework)' == 'net6.0-windows'"
+                      Include="..\Netch\Netch.csproj"
+                      AdditionalProperties="HeadlessCoreBuild=true;Platform=x64" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net6.0-windows'">
+    <Content Include="..\Storage\mode\**\*">
+      <Link>mode\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\Storage\i18n\**\*">
+      <Link>i18n\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\Storage\*">
+      <Link>%(Filename)%(Extension)</Link>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\Netch\bin\x64\Release\*.dll">
+      <Link>bin\%(Filename)%(Extension)</Link>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\Netch\bin\x64\Release\amd64\*.dll">
+      <Link>bin\amd64\%(Filename)%(Extension)</Link>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+
   </ItemGroup>
 
 </Project>

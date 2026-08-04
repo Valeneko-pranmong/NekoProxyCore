@@ -12,12 +12,16 @@ public sealed class ProxyConfiguration
         string profileReference,
         string serverReference,
         TimeSpan? startTimeout = null,
-        TimeSpan? stopTimeout = null)
+        TimeSpan? stopTimeout = null,
+        uint? targetPid = null)
     {
         Mode = mode;
         ProcessName = ValidateIdentifier(processName, nameof(processName));
         ProfileReference = ValidateIdentifier(profileReference, nameof(profileReference));
         ServerReference = ValidateIdentifier(serverReference, nameof(serverReference));
+        if (targetPid == 0)
+            throw new ArgumentOutOfRangeException(nameof(targetPid));
+        TargetPid = targetPid;
         StartTimeout = ValidateTimeout(startTimeout ?? TimeSpan.FromSeconds(30), nameof(startTimeout));
         StopTimeout = ValidateTimeout(stopTimeout ?? TimeSpan.FromSeconds(15), nameof(stopTimeout));
     }
@@ -32,6 +36,9 @@ public sealed class ProxyConfiguration
 
     /// <summary>Opaque server identifier resolved by the host, never a password-bearing URI.</summary>
     public string ServerReference { get; }
+
+    /// <summary>Exact process identifier bound by the S0 authorization contract.</summary>
+    public uint? TargetPid { get; }
 
     public TimeSpan StartTimeout { get; }
 
@@ -48,11 +55,19 @@ public sealed class ProxyConfiguration
         TimeSpan? startTimeout,
         TimeSpan? stopTimeout,
         out ProxyConfiguration? configuration,
-        out ProxyError? error)
+        out ProxyError? error,
+        uint? targetPid = null)
     {
         try
         {
-            configuration = new ProxyConfiguration(mode, processName, profileReference, serverReference, startTimeout, stopTimeout);
+            configuration = new ProxyConfiguration(
+                mode,
+                processName,
+                profileReference,
+                serverReference,
+                startTimeout,
+                stopTimeout,
+                targetPid);
             error = null;
             return true;
         }
@@ -69,11 +84,14 @@ public sealed class ProxyConfiguration
         if (string.IsNullOrWhiteSpace(value))
             throw new ArgumentException("A non-empty identifier is required.", parameterName);
 
-        var trimmed = value.Trim();
-        if (trimmed.Length > 256 || trimmed.Any(c => !char.IsLetterOrDigit(c) && c is not '.' and not '-' and not '_'))
+        if (!string.Equals(value, value.Trim(), StringComparison.Ordinal) ||
+            value.Length > 256 ||
+            value.Any(c => !char.IsLetterOrDigit(c) && c is not '.' and not '-' and not '_'))
+        {
             throw new ArgumentException("Identifier is invalid.", parameterName);
+        }
 
-        return trimmed;
+        return value;
     }
 
     private static TimeSpan ValidateTimeout(TimeSpan value, string parameterName)

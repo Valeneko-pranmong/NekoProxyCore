@@ -3,7 +3,7 @@ namespace NekoProxyCore.Core;
 /// <summary>
 /// ProcessMode seam. Native redirector/driver behavior is supplied by the engine adapter.
 /// </summary>
-public sealed class ProcessModeController : IProxyModeController, IProcessExitWatcher
+public sealed class ProcessModeController : IProxyModeController, IProcessExitWatcher, IAuthorizedStartPrecondition
 {
     private readonly IProcessResolver _processResolver;
     private readonly IProcessModeEngine _engine;
@@ -14,17 +14,26 @@ public sealed class ProcessModeController : IProxyModeController, IProcessExitWa
         _engine = engine ?? throw new ArgumentNullException(nameof(engine));
     }
 
-    public async Task StartAsync(ProxyConfiguration configuration, CancellationToken cancellationToken)
+    public async Task VerifyAsync(ProxyConfiguration configuration, CancellationToken cancellationToken)
     {
         if (configuration.Mode != ProxyModeKind.Process)
             throw new ProxyRuntimeException(ProxyErrorCode.UnsupportedMode, "The requested proxy mode is not supported.");
 
-        if (!await _processResolver.IsRunningAsync(configuration.ProcessName, cancellationToken).ConfigureAwait(false))
-            throw new ProxyRuntimeException(ProxyErrorCode.ProcessNotFound, "The target process is not running.");
+        if (!await IsTargetRunningAsync(configuration, cancellationToken).ConfigureAwait(false))
+        {
+            var code = configuration.TargetPid is null
+                ? ProxyErrorCode.ProcessNotFound
+                : ProxyErrorCode.ProcessExited;
+            throw new ProxyRuntimeException(code, "The target process is not running.");
+        }
+    }
 
+    public async Task StartAsync(ProxyConfiguration configuration, CancellationToken cancellationToken)
+    {
+        await VerifyAsync(configuration, cancellationToken).ConfigureAwait(false);
         await _engine.StartAsync(configuration, cancellationToken).ConfigureAwait(false);
 
-        if (!await _processResolver.IsRunningAsync(configuration.ProcessName, cancellationToken).ConfigureAwait(false))
+        if (!await IsTargetRunningAsync(configuration, cancellationToken).ConfigureAwait(false))
             throw new ProxyRuntimeException(ProxyErrorCode.ProcessExited, "The target process exited during startup.");
     }
 
@@ -35,6 +44,37 @@ public sealed class ProcessModeController : IProxyModeController, IProcessExitWa
         if (configuration.Mode != ProxyModeKind.Process)
             throw new ProxyRuntimeException(ProxyErrorCode.UnsupportedMode, "The requested proxy mode is not supported.");
 
-        return _processResolver.WaitForExitAsync(configuration.ProcessName, cancellationToken);
+        if (configuration.TargetPid is not { } targetPid)
+            return _processResolver.WaitForExitAsync(configuration.ProcessName, cancellationToken);
+        if (_processResolver is not IExactProcessResolver exactResolver)
+        {
+            throw new ProxyRuntimeException(
+                ProxyErrorCode.AuthorizationUnavailable,
+                "Exact target verification is unavailable.");
+        }
+
+        return exactResolver.WaitForExactProcessExitAsync(
+            configuration.ProcessName,
+            targetPid,
+            cancellationToken);
+    }
+
+    private Task<bool> IsTargetRunningAsync(
+        ProxyConfiguration configuration,
+        CancellationToken cancellationToken)
+    {
+        if (configuration.TargetPid is not { } targetPid)
+            return _processResolver.IsRunningAsync(configuration.ProcessName, cancellationToken);
+        if (_processResolver is not IExactProcessResolver exactResolver)
+        {
+            throw new ProxyRuntimeException(
+                ProxyErrorCode.AuthorizationUnavailable,
+                "Exact target verification is unavailable.");
+        }
+
+        return exactResolver.IsExactProcessRunningAsync(
+            configuration.ProcessName,
+            targetPid,
+            cancellationToken);
     }
 }

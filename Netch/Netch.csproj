@@ -87,6 +87,11 @@
     </Compile>
   </ItemGroup>
 
+  <!-- The headless Core uses the legacy controllers/models but never enters a WinForms UI path. -->
+  <ItemGroup Condition="'$(HeadlessCoreBuild)' == 'true'">
+    <EmbeddedResource Remove="Properties\Resources.resx" />
+  </ItemGroup>
+
   <ItemGroup>
     <None Remove="NativeMethods.txt" />
     <None Update="NOTICE.txt">

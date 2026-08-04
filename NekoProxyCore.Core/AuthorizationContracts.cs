@@ -23,3 +23,33 @@ public sealed class AuthorizationRequiredStartAuthorizer : IProxyStartAuthorizer
             new ProxyError(ProxyErrorCode.AuthorizationRequired, "Online authorization is required."));
     }
 }
+
+/// <summary>
+/// Verifies authorization material only after the protocol host atomically admitted the request
+/// and consumed its one-use challenge.
+/// </summary>
+public sealed class ChallengePermitStartAuthorizer : IProxyStartAuthorizer
+{
+    private readonly IPermitVerifier _permitVerifier;
+
+    public ChallengePermitStartAuthorizer(IPermitVerifier permitVerifier)
+    {
+        _permitVerifier = permitVerifier ?? throw new ArgumentNullException(nameof(permitVerifier));
+    }
+
+    public Task<ProxyError?> AuthorizeAsync(ProxyStartRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Permit is null || string.IsNullOrEmpty(request.AdmittedChallenge))
+        {
+            return Task.FromResult<ProxyError?>(
+                new ProxyError(ProxyErrorCode.AuthorizationRequired, "Online authorization is required."));
+        }
+
+        return _permitVerifier.VerifyAsync(
+            request.Permit,
+            request.Configuration,
+            request.AdmittedChallenge,
+            request.CancellationToken);
+    }
+}

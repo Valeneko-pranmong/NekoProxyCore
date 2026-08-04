@@ -5,6 +5,8 @@ namespace NekoProxyCore.Core;
 
 public sealed record CoreChallenge(string Value);
 
+public sealed record ChallengeAttempt(ChallengeConsumption Consumption, string? Value);
+
 public enum ChallengeConsumption
 {
     Accepted,
@@ -25,6 +27,8 @@ public interface ICoreChallengeService
     CoreChallenge Issue();
 
     ChallengeConsumption ConsumeForAttempt(string challenge);
+
+    ChallengeAttempt ConsumeOutstandingForAttempt();
 }
 
 public sealed class CoreChallengeService : ICoreChallengeService
@@ -85,6 +89,22 @@ public sealed class CoreChallengeService : ICoreChallengeService
             return ChallengeMatches(outstanding.Value, challenge)
                 ? ChallengeConsumption.Accepted
                 : ChallengeConsumption.Invalid;
+        }
+    }
+
+    public ChallengeAttempt ConsumeOutstandingForAttempt()
+    {
+        lock (_gate)
+        {
+            var outstanding = _outstanding;
+            if (outstanding is null)
+                return new ChallengeAttempt(ChallengeConsumption.Replayed, null);
+
+            _outstanding = null;
+            var elapsed = _clock.GetElapsedTime(outstanding.IssuedTimestamp, _clock.GetTimestamp());
+            return elapsed >= _lifetime
+                ? new ChallengeAttempt(ChallengeConsumption.Expired, null)
+                : new ChallengeAttempt(ChallengeConsumption.Accepted, outstanding.Value);
         }
     }
 

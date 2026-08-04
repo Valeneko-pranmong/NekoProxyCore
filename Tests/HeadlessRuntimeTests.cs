@@ -173,7 +173,7 @@ public sealed class HeadlessRuntimeTests
     public async Task ProcessExitDuringStartReturnsTypedError()
     {
         var engine = new FakeEngine();
-        var resolver = new SequenceProcessResolver(true, false);
+        var resolver = new SequenceProcessResolver(true, true, false);
         var runtime = CreateAuthorizedRuntime(new ProcessModeController(resolver, engine));
         var request = new ProxyStartRequest(new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "fixture-pso2", "fixture-server"));
 
@@ -319,7 +319,7 @@ public sealed class HeadlessRuntimeTests
         var result = await runtime.StartAsync(new ProxyStartRequest(config, "timeout-session"));
 
         Assert.IsFalse(result.Succeeded);
-        Assert.AreEqual(ProxyErrorCode.Timeout, result.Error!.Code);
+        Assert.AreEqual(ProxyErrorCode.StartTimeout, result.Error!.Code);
         Assert.AreEqual(ProxyStatusKind.Failed, (await runtime.GetStatusAsync()).Status);
     }
 
@@ -339,7 +339,7 @@ public sealed class HeadlessRuntimeTests
         var result = await runtime.StartAsync(new ProxyStartRequest(configuration, "late-start"));
 
         Assert.IsFalse(result.Succeeded);
-        Assert.AreEqual(ProxyErrorCode.Timeout, result.Error!.Code);
+        Assert.AreEqual(ProxyErrorCode.StartTimeout, result.Error!.Code);
         Assert.AreEqual(0, controller.StopCount);
 
         var duplicate = await runtime.StartAsync(new ProxyStartRequest(configuration, "late-start-duplicate"));

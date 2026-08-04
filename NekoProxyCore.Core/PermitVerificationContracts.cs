@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 
 namespace NekoProxyCore.Core;
 
@@ -51,6 +52,37 @@ public interface ITrustedPublicKeyResolver
 public interface ICanonicalConfigurationSerializer
 {
     ReadOnlyMemory<byte> Serialize(ProxyConfiguration configuration);
+}
+
+/// <summary>Exact canonical configuration bytes frozen by NEKO-AUTH-S0/s0-rc1.</summary>
+public sealed class S0Rc1CanonicalConfigurationSerializer : ICanonicalConfigurationSerializer
+{
+    private static readonly System.Text.RegularExpressions.Regex ProfileReferencePattern =
+        new("^profile-[0-9]{1,6}\\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    private static readonly System.Text.RegularExpressions.Regex ServerReferencePattern =
+        new("^server-[0-9]{1,6}\\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    public ReadOnlyMemory<byte> Serialize(ProxyConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        if (configuration.Mode != ProxyModeKind.Process ||
+            !string.Equals(configuration.ProcessName, "pso2.exe", StringComparison.Ordinal) ||
+            configuration.TargetPid is null ||
+            !ProfileReferencePattern.IsMatch(configuration.ProfileReference) ||
+            !ServerReferencePattern.IsMatch(configuration.ServerReference))
+        {
+            throw new ArgumentException("A target-bound ProcessMode configuration is required.", nameof(configuration));
+        }
+
+        var canonical =
+            "protocolVersion=2\n" +
+            "mode=ProcessMode\n" +
+            "processName=pso2.exe\n" +
+            $"targetPid={configuration.TargetPid.Value}\n" +
+            $"profileReference={configuration.ProfileReference}\n" +
+            $"serverReference={configuration.ServerReference}\n";
+        return Encoding.UTF8.GetBytes(canonical);
+    }
 }
 
 public interface IPermitVerifier

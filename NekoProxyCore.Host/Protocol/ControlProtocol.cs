@@ -8,15 +8,20 @@ namespace NekoProxyCore.Host.Protocol;
 
 public static class ControlProtocol
 {
-    public const int Version = 1;
+    public const int Version = 2;
     public const int MaxFrameBytes = 8 * 1024;
+    public const int MaxPermitCharacters = 4096;
 
-    private static readonly Regex IdentifierPattern = new(
-        "^[A-Za-z0-9._-]{1,256}$",
+    private static readonly Regex CorrelationIdPattern = new(
+        "^[0-9a-f]{32}$",
         RegexOptions.CultureInvariant);
 
-    private static readonly Regex OpaqueReferencePattern = new(
-        "^(profile|server)-[0-9]+$",
+    private static readonly Regex ProfileReferencePattern = new(
+        "^profile-[0-9]{1,6}\\z",
+        RegexOptions.CultureInvariant);
+
+    private static readonly Regex ServerReferencePattern = new(
+        "^server-[0-9]{1,6}\\z",
         RegexOptions.CultureInvariant);
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
@@ -28,6 +33,7 @@ public static class ControlProtocol
 
     public static bool TryParseRequest(
         string frame,
+        ICoreChallengeService? challengeService,
         out ControlRequest? request,
         out ControlResponse? error)
     {
@@ -38,33 +44,75 @@ public static class ControlProtocol
 
         try
         {
-            using var document = JsonDocument.Parse(frame);
+            using var document = JsonDocument.Parse(frame, new JsonDocumentOptions
+            {
+                AllowTrailingCommas = false,
+                CommentHandling = JsonCommentHandling.Disallow
+            });
             var root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object ||
+            if (root.ValueKind != JsonValueKind.Object || HasDuplicateProperties(root) ||
                 !TryGetInt(root, "version", out var version) || version != Version ||
                 !TryGetString(root, "command", out var commandText) ||
                 !TryGetString(root, "correlationId", out var correlationId) ||
-                !IsIdentifier(correlationId) ||
+                !CorrelationIdPattern.IsMatch(correlationId) ||
                 !TryParseCommand(commandText, out var command))
+            {
                 return Fail(out error);
+            }
+
+            var expectedFields = command == ControlCommand.Start
+                ? new HashSet<string>(StringComparer.Ordinal)
+                {
+                    "version", "command", "correlationId", "processName", "targetPid", "mode",
+                    "profileReference", "serverReference", "permit"
+                }
+                : new HashSet<string>(StringComparer.Ordinal) { "version", "command", "correlationId" };
+            if (!HasExactFields(root, expectedFields))
+                return Fail(out error, correlationId);
 
             string? processName = null;
+            uint? targetPid = null;
             string? profileReference = null;
             string? serverReference = null;
+            SensitivePermit? permit = null;
+            string? admittedChallenge = null;
             if (command == ControlCommand.Start)
             {
                 if (!TryGetString(root, "processName", out processName) ||
-                    !string.Equals(processName, "pso2.exe", StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(processName, "pso2.exe", StringComparison.Ordinal) ||
+                    !TryGetUInt(root, "targetPid", out var parsedTargetPid) || parsedTargetPid == 0 ||
+                    !TryGetString(root, "mode", out var mode) ||
+                    !string.Equals(mode, "ProcessMode", StringComparison.Ordinal) ||
                     !TryGetString(root, "profileReference", out profileReference) ||
-                    !OpaqueReferencePattern.IsMatch(profileReference) ||
-                    !profileReference.StartsWith("profile-", StringComparison.Ordinal) ||
+                    !ProfileReferencePattern.IsMatch(profileReference) ||
                     !TryGetString(root, "serverReference", out serverReference) ||
-                    !OpaqueReferencePattern.IsMatch(serverReference) ||
-                    !serverReference.StartsWith("server-", StringComparison.Ordinal))
+                    !ServerReferencePattern.IsMatch(serverReference) ||
+                    !TryGetString(root, "permit", out var permitText) ||
+                    !IsStructurallyBoundedCompactPermit(permitText) ||
+                    !SensitivePermit.TryCreate(permitText, MaxPermitCharacters, out permit))
+                {
                     return Fail(out error, correlationId);
+                }
+
+                targetPid = parsedTargetPid;
+                if (challengeService is null)
+                    return Fail(out error, correlationId);
+
+                var challenge = challengeService.ConsumeOutstandingForAttempt();
+                if (challenge.Consumption != ChallengeConsumption.Accepted)
+                    return Fail(out error, correlationId);
+                admittedChallenge = challenge.Value;
             }
 
-            request = new ControlRequest(command, correlationId, processName, profileReference, serverReference);
+            request = new ControlRequest(
+                command,
+                correlationId,
+                processName,
+                targetPid,
+                profileReference,
+                serverReference,
+                permit,
+                admittedChallenge);
             return true;
         }
         catch (JsonException)
@@ -72,6 +120,12 @@ public static class ControlProtocol
             return Fail(out error);
         }
     }
+
+    public static bool TryParseRequest(
+        string frame,
+        out ControlRequest? request,
+        out ControlResponse? error) =>
+        TryParseRequest(frame, null, out request, out error);
 
     public static string Serialize(ControlResponse response) =>
         JsonSerializer.Serialize(new WireResponse(
@@ -82,10 +136,28 @@ public static class ControlProtocol
             response.Succeeded,
             response.ErrorCode), SerializerOptions);
 
+    public static string SerializeChallenge(string correlationId, CoreChallenge challenge)
+    {
+        ArgumentNullException.ThrowIfNull(challenge);
+        if (!CorrelationIdPattern.IsMatch(correlationId) || challenge.Value.Length != 43)
+            throw new ArgumentException("Challenge response is invalid.");
+
+        return JsonSerializer.Serialize(new WireChallengeResponse(
+            Version,
+            "challenge",
+            correlationId,
+            true,
+            challenge.Value,
+            30), SerializerOptions);
+    }
+
     private static bool TryParseCommand(string value, out ControlCommand command)
     {
-        switch (value.ToLowerInvariant())
+        switch (value)
         {
+            case "challenge":
+                command = ControlCommand.Challenge;
+                return true;
             case "start":
                 command = ControlCommand.Start;
                 return true;
@@ -101,7 +173,45 @@ public static class ControlProtocol
         }
     }
 
-    private static bool IsIdentifier(string value) => IdentifierPattern.IsMatch(value);
+    private static bool HasDuplicateProperties(JsonElement root)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var property in root.EnumerateObject())
+        {
+            if (!names.Add(property.Name))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool HasExactFields(JsonElement root, HashSet<string> expectedFields)
+    {
+        var count = 0;
+        foreach (var property in root.EnumerateObject())
+        {
+            if (!expectedFields.Contains(property.Name))
+                return false;
+            count++;
+        }
+
+        return count == expectedFields.Count;
+    }
+
+    private static bool IsStructurallyBoundedCompactPermit(string value)
+    {
+        if (value.Length is < 1 or > MaxPermitCharacters)
+            return false;
+
+        var segments = value.Split('.');
+        return segments.Length == 3 && segments.All(segment =>
+            segment.Length > 0 &&
+            segment.All(character =>
+                character is >= 'A' and <= 'Z' or
+                    >= 'a' and <= 'z' or
+                    >= '0' and <= '9' or
+                    '-' or '_'));
+    }
 
     private static bool TryGetString(JsonElement root, string name, out string value)
     {
@@ -114,12 +224,23 @@ public static class ControlProtocol
     private static bool TryGetInt(JsonElement root, string name, out int value)
     {
         value = default;
-        return root.TryGetProperty(name, out var property) && property.TryGetInt32(out value);
+        return root.TryGetProperty(name, out var property) &&
+               property.ValueKind == JsonValueKind.Number &&
+               property.TryGetInt32(out value);
+    }
+
+    private static bool TryGetUInt(JsonElement root, string name, out uint value)
+    {
+        value = default;
+        return root.TryGetProperty(name, out var property) &&
+               property.ValueKind == JsonValueKind.Number &&
+               property.TryGetUInt32(out value);
     }
 
     private static bool Fail(out ControlResponse? error, string correlationId = "invalid")
     {
-        error = ControlResponse.InvalidConfiguration(IsIdentifier(correlationId) ? correlationId : "invalid");
+        error = ControlResponse.ProtocolInvalid(
+            CorrelationIdPattern.IsMatch(correlationId) ? correlationId : "invalid");
         return false;
     }
 
@@ -130,4 +251,12 @@ public static class ControlProtocol
         ProxyStatusKind Status,
         bool Succeeded,
         ProxyErrorCode? ErrorCode);
+
+    private sealed record WireChallengeResponse(
+        int Version,
+        string Kind,
+        string CorrelationId,
+        bool Succeeded,
+        string Challenge,
+        int LifetimeSeconds);
 }

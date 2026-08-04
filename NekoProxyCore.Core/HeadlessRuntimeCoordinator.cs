@@ -79,6 +79,9 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
                 if (authorizationError != null)
                     return Fail(request.CorrelationId, authorizationError.Code, authorizationError.SafeMessage);
 
+                if (_modeController is IAuthorizedStartPrecondition precondition)
+                    await precondition.VerifyAsync(request.Configuration, request.CancellationToken).ConfigureAwait(false);
+
                 Publish(ProxyStatusKind.Starting, request.CorrelationId);
                 _activeConfiguration = request.Configuration;
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(request.CancellationToken);
@@ -135,11 +138,11 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
             }
             catch (OperationCanceledException)
             {
-                return Fail(request.CorrelationId, ProxyErrorCode.Timeout, "Proxy start timed out.");
+                return Fail(request.CorrelationId, ProxyErrorCode.StartTimeout, "Proxy start timed out.");
             }
             catch (TimeoutException)
             {
-                return Fail(request.CorrelationId, ProxyErrorCode.Timeout, "Proxy start timed out.");
+                return Fail(request.CorrelationId, ProxyErrorCode.StartTimeout, "Proxy start timed out.");
             }
             catch (ProxyRuntimeException e)
             {

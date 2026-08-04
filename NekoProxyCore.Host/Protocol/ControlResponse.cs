@@ -29,11 +29,46 @@ public sealed class ControlResponse
     public ProxyErrorCode? ErrorCode { get; }
 
     public static ControlResponse FromResult(ProxyResult result) =>
-        new("result", result.CorrelationId, result.Status, result.Succeeded, result.Error?.Code);
+        new(
+            "result",
+            result.CorrelationId,
+            result.Status,
+            result.Succeeded,
+            MapWireError(result.Error?.Code));
 
     public static ControlResponse FromStatus(ProxyStatusSnapshot status, string correlationId) =>
-        new("status", correlationId, status.Status, status.Status != ProxyStatusKind.Failed, status.Error?.Code);
+        new(
+            "status",
+            correlationId,
+            status.Status,
+            status.Status != ProxyStatusKind.Failed,
+            status.Status == ProxyStatusKind.Failed
+                ? MapWireError(status.Error?.Code) ?? ProxyErrorCode.AuthorizationUnavailable
+                : null);
 
-    internal static ControlResponse InvalidConfiguration(string correlationId = "invalid") =>
-        new("result", correlationId, ProxyStatusKind.Failed, false, ProxyErrorCode.InvalidConfiguration);
+    private static ProxyErrorCode? MapWireError(ProxyErrorCode? code) => code switch
+    {
+        null => null,
+        ProxyErrorCode.AuthorizationRequired or
+        ProxyErrorCode.AuthorizationInvalid or
+        ProxyErrorCode.AuthorizationExpired or
+        ProxyErrorCode.AuthorizationReplay or
+        ProxyErrorCode.AuthorizationUnavailable or
+        ProxyErrorCode.SessionInactive or
+        ProxyErrorCode.EntitlementInactive or
+        ProxyErrorCode.HeartbeatStale or
+        ProxyErrorCode.ProcessNotFound or
+        ProxyErrorCode.ProcessExited or
+        ProxyErrorCode.ConfigurationMismatch or
+        ProxyErrorCode.ProtocolInvalid or
+        ProxyErrorCode.AlreadyRunning or
+        ProxyErrorCode.StartTimeout or
+        ProxyErrorCode.Cancelled or
+        ProxyErrorCode.StartFailed or
+        ProxyErrorCode.StopFailed => code,
+        _ => ProxyErrorCode.AuthorizationUnavailable
+    };
+
+    internal static ControlResponse ProtocolInvalid(string correlationId = "invalid") =>
+        new("result", correlationId, ProxyStatusKind.Failed, false, ProxyErrorCode.ProtocolInvalid);
 }

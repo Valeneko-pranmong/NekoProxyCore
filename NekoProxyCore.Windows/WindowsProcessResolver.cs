@@ -10,8 +10,67 @@ namespace NekoProxyCore.Windows;
 /// Resolves a local Windows process and waits for its exit without a permanent polling loop.
 /// The process name is an executable name only; paths and command-line material are rejected.
 /// </summary>
-public sealed class WindowsProcessResolver : IProcessResolver
+public sealed class WindowsProcessResolver : IProcessResolver, IExactProcessResolver
 {
+    public Task<bool> IsExactProcessRunningAsync(
+        string processName,
+        uint targetPid,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (targetPid > int.MaxValue)
+            return Task.FromResult(false);
+
+        var normalizedName = NormalizeProcessName(processName);
+        try
+        {
+            using var process = Process.GetProcessById((int)targetPid);
+            return Task.FromResult(
+                !process.HasExited &&
+                string.Equals(process.ProcessName, normalizedName, StringComparison.OrdinalIgnoreCase));
+        }
+        catch (ArgumentException)
+        {
+            return Task.FromResult(false);
+        }
+        catch (Win32Exception)
+        {
+            throw new ProxyRuntimeException(ProxyErrorCode.StartFailed, "Unable to inspect the target process.");
+        }
+        catch (InvalidOperationException)
+        {
+            return Task.FromResult(false);
+        }
+    }
+
+    public async Task WaitForExactProcessExitAsync(
+        string processName,
+        uint targetPid,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (targetPid > int.MaxValue)
+            return;
+
+        var normalizedName = NormalizeProcessName(processName);
+        Process process;
+        try
+        {
+            process = Process.GetProcessById((int)targetPid);
+        }
+        catch (ArgumentException)
+        {
+            return;
+        }
+
+        using (process)
+        {
+            if (!string.Equals(process.ProcessName, normalizedName, StringComparison.OrdinalIgnoreCase))
+                return;
+            await WaitForExitAsync(process, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     public Task<bool> IsRunningAsync(string processName, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
