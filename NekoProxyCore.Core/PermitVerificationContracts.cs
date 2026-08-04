@@ -38,6 +38,12 @@ public interface IUtcClock
     DateTimeOffset UtcNow { get; }
 }
 
+/// <summary>Wall-clock authority that can explicitly fail closed when its trust state is unavailable.</summary>
+public interface ITrustedUtcClock : IUtcClock
+{
+    bool IsTrusted { get; }
+}
+
 /// <summary>Opaque trusted public verification key selected by an approved key resolver.</summary>
 public interface ITrustedPublicKey
 {
