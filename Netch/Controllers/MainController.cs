@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Microsoft.VisualStudio.Threading;
+using NekoProxyCore.Core;
 using Netch.Interfaces;
 using Netch.Models;
 using Netch.Models.Modes;
@@ -23,9 +24,14 @@ public static class MainController
 
     private static readonly AsyncSemaphore Lock = new(1);
 
-    public static async Task StartAsync(Server server, Mode mode)
+    public static async Task StartAsync(
+        Server server,
+        Mode mode,
+        IProxyStatusSink? statusSink = null,
+        bool openLogOnUnhandledException = true)
     {
         using var releaser = await Lock.EnterAsync();
+        PublishStatus(statusSink, ProxyStatusKind.Starting);
 
         Log.Information("Start MainController: {Server} {Mode}", $"{server.Type}", $"[{(int)mode.Type}]{mode.i18NRemark}");
 
@@ -43,7 +49,7 @@ public static class MainController
 
         try
         {
-            ModeController = ModeService.GetModeControllerByType(mode.Type, out var modePort, out var portName);
+            ModeController = ModeService.GetModeControllerByType(mode.Type, out var modePort, out var portName, statusSink);
 
             if (modePort != null)
                 TryReleaseTcpPort((ushort)modePort, portName);
@@ -58,8 +64,6 @@ public static class MainController
                 Log.Debug("Server Information: {Data}", $"{server.Type} {server.MaskedData()}");
 
                 ServerController = new V2rayController();
-                Global.MainForm.StatusText(i18N.TranslateFormat("Starting {0}", ServerController.Name));
-
                 TryReleaseTcpPort(ServerController.Socks5LocalPort(), "Socks5");
                 Socks5Server = await ServerController.StartAsync(server);
 
@@ -68,14 +72,17 @@ public static class MainController
             }
 
             // Start Mode Controller
-            Global.MainForm.StatusText(i18N.TranslateFormat("Starting {0}", ModeController.Name));
-
             await ModeController.StartAsync(Socks5Server, mode);
+            PublishStatus(statusSink, ProxyStatusKind.Running);
         }
         catch (Exception e)
         {
             releaser.Dispose();
             await StopAsync();
+            PublishStatus(
+                statusSink,
+                ProxyStatusKind.Failed,
+                new ProxyError(ProxyErrorCode.StartFailed, "The legacy ProcessMode controller failed to start."));
 
             switch (e)
             {
@@ -86,7 +93,8 @@ public static class MainController
                     throw;
                 default:
                     Log.Error(e, "Unhandled Exception When Start MainController");
-                    Utils.Utils.Open(Constants.LogFile);
+                    if (openLogOnUnhandledException)
+                        Utils.Utils.Open(Constants.LogFile);
                     throw new MessageException($"{i18N.Translate("Unhandled Exception")}\n{e.Message}");
             }
         }
@@ -125,6 +133,7 @@ public static class MainController
         catch (Exception e)
         {
             Log.Error(e, "MainController Stop Error");
+            throw;
         }
 
         ServerController = null;
@@ -175,12 +184,12 @@ public static class MainController
         return Socks5ServerTestUtils.DiscoveryNatTypeAsync(Socks5Server, ctx);
     }
 
-    public static Task<int?> HttpConnectAsync(CancellationToken ctx = default)
+    public static async Task<int?> HttpConnectAsync(CancellationToken ctx = default)
     {
         Debug.Assert(Socks5Server != null, nameof(Socks5Server) + " != null");
         try
         {
-            return Socks5ServerTestUtils.HttpConnectAsync(Socks5Server, ctx);
+            return await Socks5ServerTestUtils.HttpConnectAsync(Socks5Server, ctx);
         }
         catch (OperationCanceledException)
         {
@@ -191,6 +200,21 @@ public static class MainController
             Log.Warning(e, "Unhandled Socks5ServerTestUtils.HttpConnectAsync Exception");
         }
 
-        return Task.FromResult<int?>(null);
+        return null;
+    }
+
+    private static void PublishStatus(IProxyStatusSink? statusSink, ProxyStatusKind status, ProxyError? error = null)
+    {
+        if (statusSink == null)
+            return;
+
+        try
+        {
+            statusSink.OnStatusChanged(new ProxyStatusEvent(status, string.Empty, DateTimeOffset.UtcNow, error));
+        }
+        catch
+        {
+            // Presentation code must not affect the legacy networking lifecycle.
+        }
     }
 }
