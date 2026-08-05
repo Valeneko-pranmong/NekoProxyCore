@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using System.IO.Pipes;
 using System.Text;
 using NekoProxyCore.Core;
@@ -8,7 +7,7 @@ namespace NekoProxyCore.Host;
 
 internal sealed class HeadlessControlServer
 {
-    public const string PipeName = "NekoProxyCore.s0-rc1";
+    public const string PipeName = ControlProtocol.PipeName;
 
     private readonly IProxyRuntime _runtime;
     private readonly ICoreChallengeService _challenges;
@@ -65,14 +64,17 @@ internal sealed class HeadlessControlServer
             case ControlCommand.Start:
                 if (!request.TryCreateStartRequest(out var startRequest, out var error))
                     return ControlProtocol.Serialize(error!);
-                return ControlProtocol.Serialize(ControlResponse.FromResult(await _runtime.StartAsync(startRequest!).ConfigureAwait(false)));
+                return ControlProtocol.Serialize(
+                    ControlResponse.FromResult(await _runtime.StartAsync(startRequest!).ConfigureAwait(false)),
+                    "startResponse");
             case ControlCommand.Status:
                 return ControlProtocol.Serialize(ControlResponse.FromStatus(
                     await _runtime.GetStatusAsync(cancellationToken).ConfigureAwait(false),
-                    request.CorrelationId));
+                    request.CorrelationId), "statusResponse");
             case ControlCommand.Stop:
                 return ControlProtocol.Serialize(ControlResponse.FromResult(
-                    await _runtime.StopAsync(cancellationToken).ConfigureAwait(false)));
+                    await _runtime.StopAsync(cancellationToken).ConfigureAwait(false),
+                    request.CorrelationId), "stopResponse");
             default:
                 throw new InvalidOperationException("Unsupported control command.");
         }
@@ -80,47 +82,27 @@ internal sealed class HeadlessControlServer
 
     private static async Task<string?> ReadFrameAsync(Stream stream, CancellationToken cancellationToken)
     {
-        var header = new byte[sizeof(uint)];
-        var headerBytes = await ReadExactAsync(stream, header, cancellationToken).ConfigureAwait(false);
-        if (headerBytes == 0)
-            return null;
-        if (headerBytes != header.Length)
-            throw new IOException("Incomplete control frame header.");
-
-        var length = BinaryPrimitives.ReadUInt32BigEndian(header);
-        if (length is 0 or > ControlProtocol.MaxFrameBytes)
-            throw new IOException("Control frame length is invalid.");
-
-        var payload = new byte[(int)length];
-        if (await ReadExactAsync(stream, payload, cancellationToken).ConfigureAwait(false) != payload.Length)
-            throw new IOException("Incomplete control frame payload.");
-
-        return new UTF8Encoding(false, true).GetString(payload);
-    }
-
-    private static async Task<int> ReadExactAsync(Stream stream, Memory<byte> buffer, CancellationToken cancellationToken)
-    {
-        var total = 0;
-        while (total < buffer.Length)
+        var bytes = new List<byte>();
+        var oneByte = new byte[1];
+        while (bytes.Count <= ControlProtocol.MaxFrameBytes)
         {
-            var read = await stream.ReadAsync(buffer[total..], cancellationToken).ConfigureAwait(false);
+            var read = await stream.ReadAsync(oneByte, cancellationToken).ConfigureAwait(false);
             if (read == 0)
-                break;
-            total += read;
+                return bytes.Count == 0 ? null : throw new IOException("Incomplete control frame payload.");
+            if (oneByte[0] == (byte)'\n')
+                return bytes.Count == 0
+                    ? throw new IOException("Control frame length is invalid.")
+                    : new UTF8Encoding(false, true).GetString(bytes.ToArray());
+            bytes.Add(oneByte[0]);
         }
-
-        return total;
+        throw new IOException("Control frame length is invalid.");
     }
 
     private static async Task WriteFrameAsync(Stream stream, string frame, CancellationToken cancellationToken)
     {
-        var payload = Encoding.UTF8.GetBytes(frame);
+        var payload = Encoding.UTF8.GetBytes(frame + "\n");
         if (payload.Length is 0 or > ControlProtocol.MaxFrameBytes)
             throw new IOException("Control response length is invalid.");
-
-        var header = new byte[sizeof(uint)];
-        BinaryPrimitives.WriteUInt32BigEndian(header, (uint)payload.Length);
-        await stream.WriteAsync(header, cancellationToken).ConfigureAwait(false);
         await stream.WriteAsync(payload, cancellationToken).ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
     }

@@ -13,7 +13,7 @@ public sealed class S0Rc1ReviewRegressionTests
     [TestMethod]
     public void AdmittedStartAtomicallyConsumesChallengeBeforeDispatch()
     {
-        const string json = "{\"version\":2,\"command\":\"start\",\"correlationId\":\"0123456789abcdef0123456789abcdef\",\"processName\":\"pso2.exe\",\"targetPid\":4242,\"mode\":\"ProcessMode\",\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\",\"permit\":\"header.payload.signature\"}";
+        const string json = "{\"type\":\"start\",\"correlationId\":\"0123456789abcdef0123456789abcdef\",\"protocolVersion\":2,\"mode\":\"ProcessMode\",\"processName\":\"pso2.exe\",\"targetPid\":4242,\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\",\"permit\":\"header.payload.signature\"}";
         var challenges = new CoreChallengeService();
         var issued = challenges.Issue();
 

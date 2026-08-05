@@ -8,6 +8,7 @@ namespace NekoProxyCore.Host.Protocol;
 
 public static class ControlProtocol
 {
+    public const string PipeName = "NekoProxyCoreControl";
     public const int Version = 2;
     public const int MaxFrameBytes = 8 * 1024;
     public const int MaxPermitCharacters = 4096;
@@ -51,8 +52,7 @@ public static class ControlProtocol
             });
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object || HasDuplicateProperties(root) ||
-                !TryGetInt(root, "version", out var version) || version != Version ||
-                !TryGetString(root, "command", out var commandText) ||
+                !TryGetString(root, "type", out var commandText) ||
                 !TryGetString(root, "correlationId", out var correlationId) ||
                 !CorrelationIdPattern.IsMatch(correlationId) ||
                 !TryParseCommand(commandText, out var command))
@@ -63,10 +63,10 @@ public static class ControlProtocol
             var expectedFields = command == ControlCommand.Start
                 ? new HashSet<string>(StringComparer.Ordinal)
                 {
-                    "version", "command", "correlationId", "processName", "targetPid", "mode",
+                    "type", "correlationId", "protocolVersion", "processName", "targetPid", "mode",
                     "profileReference", "serverReference", "permit"
                 }
-                : new HashSet<string>(StringComparer.Ordinal) { "version", "command", "correlationId" };
+                : new HashSet<string>(StringComparer.Ordinal) { "type", "correlationId" };
             if (!HasExactFields(root, expectedFields))
                 return Fail(out error, correlationId);
 
@@ -78,7 +78,8 @@ public static class ControlProtocol
             string? admittedChallenge = null;
             if (command == ControlCommand.Start)
             {
-                if (!TryGetString(root, "processName", out processName) ||
+                if (!TryGetInt(root, "protocolVersion", out var protocolVersion) || protocolVersion != Version ||
+                    !TryGetString(root, "processName", out processName) ||
                     !string.Equals(processName, "pso2.exe", StringComparison.Ordinal) ||
                     !TryGetUInt(root, "targetPid", out var parsedTargetPid) || parsedTargetPid == 0 ||
                     !TryGetString(root, "mode", out var mode) ||
@@ -127,10 +128,9 @@ public static class ControlProtocol
         out ControlResponse? error) =>
         TryParseRequest(frame, null, out request, out error);
 
-    public static string Serialize(ControlResponse response) =>
+    public static string Serialize(ControlResponse response, string? responseType = null) =>
         JsonSerializer.Serialize(new WireResponse(
-            Version,
-            response.Kind,
+            responseType ?? response.Kind,
             response.CorrelationId,
             response.Status,
             response.Succeeded,
@@ -143,12 +143,9 @@ public static class ControlProtocol
             throw new ArgumentException("Challenge response is invalid.");
 
         return JsonSerializer.Serialize(new WireChallengeResponse(
-            Version,
-            "challenge",
+            "challengeResponse",
             correlationId,
-            true,
-            challenge.Value,
-            30), SerializerOptions);
+            challenge.Value), SerializerOptions);
     }
 
     private static bool TryParseCommand(string value, out ControlCommand command)
@@ -245,18 +242,14 @@ public static class ControlProtocol
     }
 
     private sealed record WireResponse(
-        int Version,
-        string Kind,
+        string Type,
         string CorrelationId,
         ProxyStatusKind Status,
         bool Succeeded,
         ProxyErrorCode? ErrorCode);
 
     private sealed record WireChallengeResponse(
-        int Version,
-        string Kind,
+        string Type,
         string CorrelationId,
-        bool Succeeded,
-        string Challenge,
-        int LifetimeSeconds);
+        string Challenge);
 }

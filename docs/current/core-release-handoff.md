@@ -5,61 +5,62 @@
 - **วันที่:** 2026-08-05
 - **Repository:** `E:\Github\NekoProxyCore`
 - **Implementation branch:** `feature/neko-headless`
-- **Verified runtime/package source revision:** `ce365ebccf976a752854609d2f42d738bfbfd039`
-- **สถานะ:** `CANONICAL WIN-X64 PUBLISH LOCALLY VERIFIED — PRODUCTION AUTHORIZATION/SIGNING MATERIAL BLOCKED`
+- **Verified source HEAD:** `1c9d4e6b9faa8375b5ab4ba4e134f564b3eabdbb`
+- **Artifact provenance:** pinned Launcher/Core HEADs + exact working-tree file hashesใน `artifacts/evidence/minimal-v1-launcher-primary-e2e.json`
+- **สถานะ:** `MINIMAL V1 AUTHORIZATION IMPLEMENTED — LOCAL CROSS-REPOSITORY ADMISSION VERIFIED; LIVE SUPABASE NOT CERTIFIED`
 
-> เอกสารนี้เป็น source of truth สำหรับ Core handoff หลังปิด implementation รอบปัจจุบัน
-> release artifacts ส่งมอบแยกจาก Git และยังไม่ใช่ production authorization/signing approval
+> ส่วนนี้เป็น canonical status ล่าสุดและ supersede สถานะ/transport/จำนวน tests เก่าทั้งหมดด้านล่าง
+> Artifact ส่งมอบแยกจาก Git และสร้างจาก HEAD + working-tree overlays ที่บันทึก hash ไว้ใน evidence
 
-## 0. Fresh authorization-composition update — 2026-08-05
+## 0. Minimal V1 execution update — 2026-08-05
 
-ตรวจจาก `feature/neko-headless` ที่ revision
-`ce365ebccf976a752854609d2f42d738bfbfd039` และ frozen baseline
-`99480e99c3f5f4b0f6c4a32fdbbb4911be2a3687`:
+ยึด Launcher เป็น source of truth ที่ `E:\Github\Neko-Family-Proxy` HEAD
+`476aa38f90c3e40b127928695ffd513aaccff14f` และ canonical function
+`supabase/functions/issue_launch_permit/index.ts`; Core HEAD คือ
+`1c9d4e6b9faa8375b5ab4ba4e134f564b3eabdbb` ซึ่งตรงกับ origin และ frozen baseline
+`99480e99c3f5f4b0f6c4a32fdbbb4911be2a3687` ยังเป็น ancestor
 
-- เพิ่ม `NekoProxyCore.Core/ProductionAuthorizationComposition.cs` เพื่อ pin
-  `NEKO-AUTH-S0/s0-rc1` และ package SHA-256
-  `6697351b6b280afc566fedaaa1a6cfe207b1ea1d803c2eb613b4c1a891e192df`
-- `NekoProxyCore.Host/Program.cs` เรียก composition root นี้อย่าง explicit
-- composition ปัจจุบันคืน `AuthorizationRequiredStartAuthorizer` เท่านั้น เพราะไม่มี
-  approved immutable public-key release/trusted-time composition ใน workspace
-- เพิ่ม tests ยืนยัน contract identity และยืนยันว่าปัจจุบัน start ถูกปฏิเสธด้วย
-  `AuthorizationRequired`
+- Launcher production gate: `READY=True`, blockers `0`
+- Canonical permit: RS256, `kid=neko-prod-key-1`, lifetime 30 วินาที และ response `{permit}`
+- Core bundle public keyอย่างเดียวและโหลด trust ก่อนสร้าง engine/runtime; ไม่มี private key/env bypass/fallback signer
+- Launcher/Core transportตรงกันที่ current-user pipe `NekoProxyCoreControl`, newline-delimited JSON,
+  `type`/`correlationId` และ response types `challengeResponse`, `startResponse`, `statusResponse`, `stopResponse`
+- Challenge ผ่าน process-level smokeจริง (43-character Base64URL); tampered permit ถูก reject เป็น
+  `AuthorizationInvalid`; permitที่ signตาม Launcher function ผ่าน signature/key/claims boundary แล้วไปหยุดที่
+  synthetic data-plane fixtureเป็น `AuthorizationUnavailable`; stop handshakeตอบ `Stopped` และ echo correlationถูกต้อง
+- ผลข้างต้นพิสูจน์ local authorization admission ไม่ใช่การรับรอง deployed Supabase signer หรือ
+  production `Running` state; live Supabase testsถูก skipเพราะไม่มี disposable credentials
 
-Fresh source-tree verification หลังแก้ canonical publish graph:
+Fresh verification:
 
 ```text
-dotnet test Tests/Tests.csproj -c Release -p:Platform=x64 --no-restore --nologo
-Passed: 103, Failed: 0, Skipped: 0
-
-dotnet publish NekoProxyCore.Host/NekoProxyCore.Host.csproj \
-  -c Release -f net6.0-windows -r win-x64 -p:Platform=x64 \
-  --self-contained false -o TestResults/canonical-release-final --nologo -m:1
-Publish: passed
+Launcher: Ruff passed; pytest 109 passed, 0 failed, 2 skipped (credentials not configured)
+Core Release/x64: 112 passed, 0 failed, 0 skipped
+Publish: net6.0-windows / win-x64 passed
+No orphan NekoProxyCore.exe or pso2.exe after smoke
 ```
 
-Canonical publish นี้สร้างโดยตรงจาก working tree ปัจจุบันโดยไม่ใช้ Audit overlays:
+Artifact identity:
 
 ```text
-File count: 243
-PDB/runtime-generated files: 0
-NekoProxyCore.exe: 151,040 bytes
+Directory: artifacts/minimal-v1-launcher-primary
+File count: 245
 NekoProxyCore.exe SHA-256: 1b9b0ba313ac1f8c879f07f678a2f01e5b334c29fc17323533017aed2cbffcfe
-NekoProxyCore.dll SHA-256: 1703322471e47baf9897a9ee05e8d2600e8ce150a5a61b5c10142d0a6d6c3acb
-NekoProxyCore.Core.dll SHA-256: ebb2dde1674aef7c6ef06bc5606dbcc32ab6148da830f7d70dc5202e6377c033
-NekoProxyCore.deps.json: present
-Named Pipe challenge: passed
-Initial status: Stopped
-Synthetic start: AuthorizationRequired
-Stop: Stopped
-Credentials used: false
+ZIP SHA-256: 2cd6de7c489959e7e888b2ceaaf3f633f1efc747787592e37e775065cb3b1c1c
+PE machine/subsystem: 0x8664 / 2
+ZIP entries / manifest entries / mismatches: 245 / 245 / 0
+Private-key marker files / permit sentinel files: 0 / 0
 ```
 
-Canonical publish blocker ถูกปิดแล้ว สถานะที่ถูกต้องคือ **source-bound canonical Release publish
-และ fail-closed composition locally verified** แต่ยังไม่ใช่ production authorization enabled.
-Approved immutable production public-key release/trusted-clock composition, Launcher production
-gateway, code-signing certificate, authorized `start -> Running`, renewal/runtime enforcement,
-S1 access และ Security/Release approval ยังคง `BLOCKED`.
+หลักฐาน canonical ล่าสุด:
+
+- `artifacts/evidence/minimal-v1-launcher-primary-e2e.json`
+- `artifacts/evidence/minimal-v1-launcher-primary-artifact.json`
+- `artifacts/evidence/minimal-v1-launcher-primary-manifest.json`
+- `artifacts/evidence/final-minimal-v1-tests.trx`
+
+ข้อความ historical ด้านล่างที่กล่าวถึง big-endian framing, missing bundled key, Launcher pending gate
+หรือจำนวน tests/artifact เดิม เป็น reference เก่าและห้ามใช้เป็น current release verdict
 
 ---
 

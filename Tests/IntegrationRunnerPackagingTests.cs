@@ -88,7 +88,7 @@ public sealed class IntegrationRunnerPackagingTests
 
         Assert.IsTrue(source.Contains("PipeOptions.CurrentUserOnly", StringComparison.Ordinal));
         Assert.IsTrue(source.Contains("ControlProtocol.MaxFrameBytes", StringComparison.Ordinal));
-        Assert.IsTrue(source.Contains("BinaryPrimitives.ReadUInt32BigEndian", StringComparison.Ordinal));
+        Assert.IsTrue(source.Contains("oneByte[0] == (byte)'\\n'", StringComparison.Ordinal));
         Assert.IsTrue(source.Contains("ControlCommand.Challenge", StringComparison.Ordinal));
         Assert.IsTrue(source.Contains("ControlCommand.Start", StringComparison.Ordinal));
     }

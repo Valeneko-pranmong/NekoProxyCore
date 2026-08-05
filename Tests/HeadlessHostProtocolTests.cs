@@ -9,9 +9,40 @@ namespace Tests;
 public sealed class HeadlessHostProtocolTests
 {
     [TestMethod]
+    public void LauncherCanonicalPipeNameIsUsed()
+    {
+        Assert.AreEqual("NekoProxyCoreControl", ControlProtocol.PipeName);
+    }
+
+    [TestMethod]
+    public void LauncherCanonicalChallengeRequestIsAccepted()
+    {
+        const string json = "{\"type\":\"challenge\",\"correlationId\":\"0123456789abcdef0123456789abcdef\"}";
+
+        Assert.IsTrue(ControlProtocol.TryParseRequest(json, out var request, out var error));
+        Assert.IsNull(error);
+        Assert.AreEqual(ControlCommand.Challenge, request!.Command);
+    }
+
+    [TestMethod]
+    public void LauncherCanonicalStartRequestProducesTargetBoundConfiguration()
+    {
+        const string json = "{\"type\":\"start\",\"correlationId\":\"0123456789abcdef0123456789abcdef\",\"protocolVersion\":2,\"mode\":\"ProcessMode\",\"processName\":\"pso2.exe\",\"targetPid\":4242,\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\",\"permit\":\"header.payload.signature\"}";
+        var challenges = new CoreChallengeService();
+        challenges.Issue();
+
+        var parsed = ControlProtocol.TryParseRequest(json, challenges, out var request, out var error);
+
+        Assert.IsTrue(parsed);
+        Assert.IsNull(error);
+        Assert.IsTrue(request!.TryCreateStartRequest(out var startRequest, out error));
+        Assert.AreEqual((uint)4242, startRequest!.Configuration.TargetPid);
+    }
+
+    [TestMethod]
     public void ValidStartRequestProducesTargetBoundConfiguration()
     {
-        const string json = "{\"version\":2,\"command\":\"start\",\"correlationId\":\"0123456789abcdef0123456789abcdef\",\"processName\":\"pso2.exe\",\"targetPid\":4242,\"mode\":\"ProcessMode\",\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\",\"permit\":\"header.payload.signature\"}";
+        const string json = "{\"type\":\"start\",\"correlationId\":\"0123456789abcdef0123456789abcdef\",\"protocolVersion\":2,\"mode\":\"ProcessMode\",\"processName\":\"pso2.exe\",\"targetPid\":4242,\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\",\"permit\":\"header.payload.signature\"}";
 
         var challenges = new CoreChallengeService();
         challenges.Issue();
@@ -30,8 +61,8 @@ public sealed class HeadlessHostProtocolTests
     }
 
     [DataTestMethod]
-    [DataRow("{\"version\":2,\"command\":\"status\",\"correlationId\":\"0123456789abcdef0123456789abcdef\"}", ControlCommand.Status)]
-    [DataRow("{\"version\":2,\"command\":\"stop\",\"correlationId\":\"fedcba9876543210fedcba9876543210\"}", ControlCommand.Stop)]
+    [DataRow("{\"type\":\"status\",\"correlationId\":\"0123456789abcdef0123456789abcdef\"}", ControlCommand.Status)]
+        [DataRow("{\"type\":\"stop\",\"correlationId\":\"fedcba9876543210fedcba9876543210\"}", ControlCommand.Stop)]
     public void StatusAndStopRequestsAreAccepted(string json, ControlCommand expected)
     {
         Assert.IsTrue(ControlProtocol.TryParseRequest(json, out var request, out var error));
@@ -42,7 +73,7 @@ public sealed class HeadlessHostProtocolTests
     [TestMethod]
     public void ChallengeRequestIsAcceptedWithoutStartFields()
     {
-        const string json = "{\"version\":2,\"command\":\"challenge\",\"correlationId\":\"0123456789abcdef0123456789abcdef\"}";
+        const string json = "{\"type\":\"challenge\",\"correlationId\":\"0123456789abcdef0123456789abcdef\"}";
 
         Assert.IsTrue(ControlProtocol.TryParseRequest(json, out var request, out var error));
         Assert.IsNull(error);
@@ -88,14 +119,14 @@ public sealed class HeadlessHostProtocolTests
     }
 
     [TestMethod]
-    public void ChallengeResponseSerializesOnlyFrozenFields()
+    public void ChallengeResponseSerializesLauncherCanonicalFields()
     {
         var json = ControlProtocol.SerializeChallenge(
             "0123456789abcdef0123456789abcdef",
             new CoreChallenge("0123456789012345678901234567890123456789012"));
 
         Assert.AreEqual(
-            "{\"version\":2,\"kind\":\"challenge\",\"correlationId\":\"0123456789abcdef0123456789abcdef\",\"succeeded\":true,\"challenge\":\"0123456789012345678901234567890123456789012\",\"lifetimeSeconds\":30}",
+            "{\"type\":\"challengeResponse\",\"correlationId\":\"0123456789abcdef0123456789abcdef\",\"challenge\":\"0123456789012345678901234567890123456789012\"}",
             json);
     }
 
@@ -109,8 +140,7 @@ public sealed class HeadlessHostProtocolTests
 
         var json = ControlProtocol.Serialize(ControlResponse.FromResult(result));
 
-        StringAssert.Contains(json, "\"version\":2");
-        StringAssert.Contains(json, "\"kind\":\"result\"");
+        Assert.IsTrue(json.Contains("\"type\":\"result\"", StringComparison.Ordinal));
         StringAssert.Contains(json, "\"correlationId\":\"0123456789abcdef0123456789abcdef\"");
         StringAssert.Contains(json, "\"status\":\"Failed\"");
         StringAssert.Contains(json, "\"succeeded\":false");
@@ -118,6 +148,21 @@ public sealed class HeadlessHostProtocolTests
         Assert.IsFalse(json.Contains("sentinel-token", StringComparison.Ordinal));
         Assert.IsFalse(json.Contains("message", StringComparison.OrdinalIgnoreCase));
         Assert.IsFalse(json.Contains("timestamp", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [TestMethod]
+    public void StopResponseEchoesLauncherRequestCorrelationId()
+    {
+        var runtimeResult = ProxyResult.Success(ProxyStatusKind.Stopped, "runtime-correlation");
+
+        var json = ControlProtocol.Serialize(
+            ControlResponse.FromResult(runtimeResult, "0123456789abcdef0123456789abcdef"),
+            "stopResponse");
+
+        Assert.IsTrue(json.Contains(
+            "\"correlationId\":\"0123456789abcdef0123456789abcdef\"",
+            StringComparison.Ordinal));
+        Assert.IsFalse(json.Contains("runtime-correlation", StringComparison.Ordinal));
     }
 
     [TestMethod]

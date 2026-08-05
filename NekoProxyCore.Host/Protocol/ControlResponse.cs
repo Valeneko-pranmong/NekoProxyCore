@@ -28,10 +28,10 @@ public sealed class ControlResponse
 
     public ProxyErrorCode? ErrorCode { get; }
 
-    public static ControlResponse FromResult(ProxyResult result) =>
+    public static ControlResponse FromResult(ProxyResult result, string? correlationId = null) =>
         new(
             "result",
-            result.CorrelationId,
+            correlationId ?? result.CorrelationId,
             result.Status,
             result.Succeeded,
             MapWireError(result.Error?.Code));

@@ -1,4 +1,5 @@
 using NekoProxyCore.Core;
+using NekoProxyCore.Host.Authorization;
 #if WINDOWS
 using NekoProxyCore.Legacy;
 using NekoProxyCore.Windows;
@@ -26,29 +27,33 @@ internal static class Program
                 shutdown.Cancel();
             };
 
-            var statusSink = new NullStatusSink();
-            var engine = new NetchProcessModeEngine(new NetchProcessModeSessionResolver(), statusSink);
-            var controller = new ProcessModeController(new WindowsProcessResolver(), engine);
-
-            // The release composition pins NEKO-AUTH-S0 and remains fail closed until
-            // approved immutable public keys and trusted-clock material are supplied.
-            var startAuthorizer = ProductionAuthorizationComposition.CreateStartAuthorizer();
-            var runtime = new HeadlessRuntimeCoordinator(controller, startAuthorizer, statusSink);
-            var server = new HeadlessControlServer(runtime, new CoreChallengeService());
+            HeadlessRuntimeCoordinator? runtime = null;
             try
             {
+                // Missing or invalid bundled trust material terminates the host before runtime
+                // initialization; there is no authorization fallback in the production entry point.
+                var startAuthorizer = ProductionAuthorizationComposition.CreateStartAuthorizer(
+                    ProductionPublicKeys.LoadBundled());
+                var statusSink = new NullStatusSink();
+                var engine = new NetchProcessModeEngine(new NetchProcessModeSessionResolver(), statusSink);
+                var controller = new ProcessModeController(new WindowsProcessResolver(), engine);
+                runtime = new HeadlessRuntimeCoordinator(controller, startAuthorizer, statusSink);
+                var server = new HeadlessControlServer(runtime, new CoreChallengeService());
+
                 await NetchRuntimeBootstrap.InitializeAsync(AppContext.BaseDirectory).ConfigureAwait(false);
                 await server.RunAsync(shutdown.Token).ConfigureAwait(false);
                 return 0;
             }
             catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
             {
-                await runtime.StopAsync().ConfigureAwait(false);
+                if (runtime != null)
+                    await runtime.StopAsync().ConfigureAwait(false);
                 return 0;
             }
             catch
             {
-                await runtime.StopAsync().ConfigureAwait(false);
+                if (runtime != null)
+                    await runtime.StopAsync().ConfigureAwait(false);
                 return 2;
             }
         }

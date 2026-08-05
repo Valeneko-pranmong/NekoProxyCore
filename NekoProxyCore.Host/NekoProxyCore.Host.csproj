@@ -22,6 +22,11 @@
                       AdditionalProperties="HeadlessCoreBuild=true;Platform=x64;GenerateDependencyFile=false" />
   </ItemGroup>
 
+  <ItemGroup Condition="Exists('Authorization\production-public-keys.json')">
+    <EmbeddedResource Include="Authorization\production-public-keys.json"
+                      LogicalName="NekoProxyCore.Host.Authorization.production-public-keys.json" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$(TargetFramework)' == 'net6.0-windows'">
     <Content Include="..\Storage\mode\**\*">
       <Link>mode\%(RecursiveDir)%(Filename)%(Extension)</Link>
