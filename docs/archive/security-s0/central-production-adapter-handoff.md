@@ -1,5 +1,8 @@
 # NEKO-AUTH-S0 — Central Production Adapter Handoff
 
+> **ARCHIVED HISTORICAL SNAPSHOT:** เก็บเพื่อ trace history เท่านั้น ดูสถานะปัจจุบันที่
+> [`../../current/core-release-handoff.md`](../../current/core-release-handoff.md)
+
 **เอกสารกลางสำหรับ:** Launcher Team, NekoProxyCore Team, Backend/Security, Proxy Server/Security S1 และ QA/Release  
 **Contract ID:** `NEKO-AUTH-S0`  
 **Contract revision:** `s0-rc1`  

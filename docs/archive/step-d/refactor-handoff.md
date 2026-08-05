@@ -1,11 +1,14 @@
 ﻿# NekoProxyCore — Refactor Handoff
 
+> **ARCHIVED HISTORICAL SNAPSHOT:** เก็บเพื่อ trace history เท่านั้น ดูสถานะปัจจุบันที่
+> [`../../current/core-release-handoff.md`](../../current/core-release-handoff.md)
+
 > **Historical checkpoint:** ตัวเลข `27/27` และสถานะ Step D ในเอกสารนี้เป็นหลักฐาน ณ checkpoint เดิม ไม่ใช่ test count/current authorization readiness. สถานะรวม canonical อยู่ที่ `D:\Audit Neko project\Proxy core to do\README.md` และ suite รอบ `Core-S0-Producer-01` มี 64 tests; 51 tests เป็น C1 historical checkpoint
 
 อัปเดต: 2026-08-03
 
 เอกสารนี้บันทึก checkpoint ที่ตรวจแล้วสำหรับทีมถัดไปที่แยก runtime/network
-engine ออกจาก Netch WinForms เดิม ให้เริ่มจาก [HANDOFF.md](HANDOFF.md) และรักษา
+engine ออกจาก Netch WinForms เดิม ให้เริ่มจาก [current Core release handoff](../../current/core-release-handoff.md) และรักษา
 product contract ด้านล่างก่อนเปลี่ยน network behavior
 
 ## 1. Snapshot ที่ยืนยันแล้ว
@@ -230,14 +233,14 @@ safe process-name validation ผลทดสอบ resolver อยู่ใน�
 ข้อจำกัดนี้ถูกปิดใน accepted run วันที่ 2026-08-03: ผู้ใช้เปิด `pso2.exe` จริง, runner
 เริ่มหลังพบ target, คง `Running` ระหว่าง online gameplay และยืนยัน traffic ด้วย
 server-side Shadowsocks counters โดยใช้ opaque `profile-N`/`server-N` เท่านั้น ดู
-[PROCESSMODE_TEST_REPORT.md](PROCESSMODE_TEST_REPORT.md).
+[processmode-test-report.md](processmode-test-report.md).
 
 เพิ่ม official runner ที่ `NekoProxyCore.IntegrationRunner/` และ launcher ที่
 `tools/run-processmode-integration.ps1` แล้ว โดย pin `win-x64`, stage RID-specific
 Windows runtime DLL ทุกไฟล์ใต้ `runtimes/win/lib/net6.0`, ตรวจ SHA-256 ก่อนรัน, whitelist output
 และลบ runtime mirror ใน `%TEMP%` ผ่าน `finally`. `-PrepareOnly` ผ่าน และ negative
 missing-process check คืน exit `20` โดยไม่เหลือ temporary directory. รายละเอียดการรัน
-จริงและเกณฑ์ผลลัพธ์อยู่ใน [TESTER_HANDOFF.md](TESTER_HANDOFF.md).
+จริงและเกณฑ์ผลลัพธ์อยู่ใน [tester-handoff.md](tester-handoff.md).
 
 ### Handoff ให้ทีมถัดไป — เริ่ม Step E หลัง Step D PASS
 
@@ -247,7 +250,7 @@ missing-process check คืน exit `20` โดยไม่เหลือ temp
 2. ยืนยันว่า legacy Windows target build ได้ใน Visual Studio developer environment
    โดยไม่แก้ PcapController/TUNController เพื่อหลบ build error
 3. Step D full ProcessMode gate ผ่านแล้วตาม
-   [PROCESSMODE_TEST_REPORT.md](PROCESSMODE_TEST_REPORT.md): เข้า online lobby, สร้าง
+   [processmode-test-report.md](processmode-test-report.md): เข้า online lobby, สร้าง
    gameplay load และยืนยัน server-side Shadowsocks counter delta โดยไม่เก็บ payload/credential
 4. เริ่ม Step E headless host/launcher boundary โดยรักษา opaque references, typed status,
    bounded waits และ cleanup semantics จาก Step D
@@ -313,7 +316,7 @@ stage และตรวจ SHA-256 แล้ว จึงต้องบัน�
 
 `NekoProxyCore.Legacy/NekoProxyCore.Legacy.csproj` build ผ่านทั้ง `net6.0` และ
 `net6.0-windows` ด้วย Visual Studio MSBuild `17.14.51`, `Configuration=Release`,
-`Platform=x64` ตาม command ในหัวข้อ Step D และ [TESTER_HANDOFF.md](TESTER_HANDOFF.md).
+`Platform=x64` ตาม command ในหัวข้อ Step D และ [tester-handoff.md](tester-handoff.md).
 
 ### ยังไม่ผ่าน — full legacy solution/release build
 

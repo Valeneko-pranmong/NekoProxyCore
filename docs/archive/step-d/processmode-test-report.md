@@ -1,5 +1,8 @@
 ﻿# ProcessMode Integration Test Report — Step D Final Handoff
 
+> **ARCHIVED HISTORICAL SNAPSHOT:** เก็บเพื่อ trace history เท่านั้น ดูสถานะปัจจุบันที่
+> [`../../current/core-release-handoff.md`](../../current/core-release-handoff.md)
+
 > **ขอบเขตหลักฐาน:** รายงานนี้เป็น historical pre-authorization evidence ของ accepted Step D run เท่านั้น ไม่ใช่หลักฐานว่า current default-deny runner หรือ production Launcher → Core authorization ผ่าน
 >
 > ที่ revision `8d19f36` current `NekoProxyCore.IntegrationRunner` สร้าง `HeadlessRuntimeCoordinator` ผ่าน default constructor ซึ่งใช้ `AuthorizationRequiredStartAuthorizer`; start จึง fail closed และ runner ปัจจุบันไม่ reproduce trace/PASS ของ accepted Step D run นี้

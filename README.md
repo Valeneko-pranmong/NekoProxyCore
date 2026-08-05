@@ -1,40 +1,81 @@
-<p align="center"><img src="https://github.com/NetchX/Netch/blob/main/Netch/Resources/Netch.png?raw=true" width="128" /></p>
+# NekoProxyCore
 
-<div align="center">
+Headless Windows proxy Core สำหรับ Neko Launcher โดยสืบต่อ network engine จาก Netch 1.x
+และแยก product host, runtime contracts, Windows integration และ legacy ProcessMode adapter
+ออกจาก WinForms UI เดิม
 
-# Netch
-A simple proxy client
+## จุดเริ่มต้น
 
-[![](https://img.shields.io/badge/telegram-group-green?style=flat-square)](https://t.me/netch_group)
-[![](https://img.shields.io/badge/telegram-channel-blue?style=flat-square)](https://t.me/netch_channel)
-[![](https://img.shields.io/github/downloads/netchx/netch/total.svg?style=flat-square)](https://github.com/netchx/netch/releases)
-[![](https://img.shields.io/github/v/release/netchx/netch?style=flat-square)](https://github.com/netchx/netch/releases)
-</div>
+- **Branch งานหลัก:** `feature/neko-headless`
+- **Frozen compatibility baseline:** `origin/baseline/netch-1.9.7`
+  (`99480e99c3f5f4b0f6c4a32fdbbb4911be2a3687`)
+- **เอกสารสถานะปัจจุบัน:**
+  [`docs/current/core-release-handoff.md`](docs/current/core-release-handoff.md)
+- **สารบัญเอกสาร:** [`docs/README.md`](docs/README.md)
 
-## Features
-Some features may not be implemented in version 1
+> `main` เป็น legacy/reference branch ไม่ใช่จุดพัฒนาปัจจุบัน
 
-### Modes
-- `ProcessMode` - Use Netfilter driver to intercept process traffic
-- `ShareMode` - Share your network based on WinPcap / Npcap
-- `TunMode` - Use WinTUN driver to create virtual adapter
-- `WebMode` - Web proxy mode
+## สถานะปัจจุบัน
 
-### Protocols
-- [`Socks5`](https://www.wikiwand.com/en/SOCKS)
-- [`Shadowsocks`](https://shadowsocks.org)
-- [`ShadowsocksR`](https://github.com/shadowsocksrr/shadowsocksr-libev)
-- [`WireGuard`](https://www.wireguard.com)
-- [`Trojan`](https://trojan-gfw.github.io/trojan)
-- [`VMess`](https://www.v2fly.org)
-- [`VLESS`](https://xtls.github.io)
+- Canonical `Release`/`win-x64` publish จาก source ผ่านแล้ว
+- Named Pipe `NekoProxyCore.s0-rc1`, Protocol v2 และ fail-closed lifecycle ผ่านการตรวจ
+- Production authorization ยังคง fail closed ด้วย `AuthorizationRequired` จนกว่า
+  Security/Release จะส่ง approved public-key allow-list, trusted-clock composition และ
+  production signing material
+- Runtime bundle ส่งให้ทีม Launcher แยกจาก Git ที่
+  `release/NekoProxyCore-win-x64.zip` พร้อม manifest, provenance, verification report และ
+  `SHA256SUMS.txt`
 
-### Others
-- UDP NAT FullCone (Limited by your server)
-- .NET 6.0 x64
+สถานะและข้อจำกัดฉบับเต็มอยู่ใน
+[`docs/current/core-release-handoff.md`](docs/current/core-release-handoff.md)
 
-## Sponsor
-<a href="https://www.jetbrains.com/?from=Netch"><img src="jetbrains.svg" alt="JetBrains" width="200"/></a>
+## โครงสร้าง source
+
+| Path | บทบาท |
+|---|---|
+| `NekoProxyCore.Core/` | Runtime contracts, authorization และ headless coordinator |
+| `NekoProxyCore.Host/` | Windows headless executable และ Named Pipe host |
+| `NekoProxyCore.Windows/` | Windows process integration |
+| `NekoProxyCore.Legacy/` | Adapter เข้าสู่ Netch ProcessMode engine |
+| `Netch/` | Legacy Netch engine source ที่ยังใช้ระหว่าง migration |
+| `Storage/` | Runtime mode/i18n/assets ที่ publish ไปกับ Core |
+| `Tests/` | Managed unit, security และ packaging regression tests |
+| `docs/current/` | เอกสารสถานะที่ใช้งานปัจจุบันเท่านั้น |
+| `docs/reference/` | Reference ที่ยังใช้และไม่ใช่ status report |
+| `docs/archive/` | Historical plans/reports; ห้ามใช้แทน current status |
+| `release/` | Generated handoff bundles; ignored by Git |
+
+## Build และตรวจสอบ
+
+```bash
+dotnet test Tests/Tests.csproj -c Release -p:Platform=x64 --no-restore --nologo
+
+dotnet publish NekoProxyCore.Host/NekoProxyCore.Host.csproj \
+  -c Release \
+  -f net6.0-windows \
+  -r win-x64 \
+  -p:Platform=x64 \
+  --self-contained false \
+  -o TestResults/canonical-release \
+  --nologo \
+  -m:1
+```
+
+Target runtime ต้องมี .NET 6 Windows Desktop Runtime x64 เพราะ bundle เป็น
+framework-dependent
+
+## Security rules
+
+ห้ามทำให้ `start` ผ่านด้วย allow-all/no-op verifier, local signer, static/shared secret,
+cached permit, first-key fallback หรือ authorization bypass ทุกชนิด ระหว่างที่ production
+trust material ยังไม่พร้อม ค่าเริ่มต้นที่ถูกต้องคือ fail closed และ engine start count เป็นศูนย์
+
+## Legacy Netch reference
+
+README ของ upstream Netch เดิมถูกเก็บไว้ที่
+[`docs/reference/legacy-netch-upstream.md`](docs/reference/legacy-netch-upstream.md)
+เพื่อใช้อ้างอิง compatibility เท่านั้น
 
 ## License
-Netch is licensed under the [GPLv3](https://raw.githubusercontent.com/netchx/netch/main/LICENSE) license
+
+โค้ดที่สืบต่อจาก Netch อยู่ภายใต้ GPLv3 ดู [`LICENSE`](LICENSE)

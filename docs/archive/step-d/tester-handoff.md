@@ -1,5 +1,8 @@
 ﻿# NekoProxyCore — Tester handoff สำหรับ Step D
 
+> **ARCHIVED — Step D tester snapshot:** ดูสถานะปัจจุบันที่
+> [`../../current/core-release-handoff.md`](../../current/core-release-handoff.md)
+
 อัปเดต: 2026-08-03
 Branch: `feature/neko-headless`
 Baseline ที่ห้ามแก้: `baseline/netch-1.9.7` / `99480e99c3f5f4b0f6c4a32fdbbb4911be2a3687`
@@ -19,7 +22,7 @@ lifecycle/local-SOCKS ผ่าน, runtime คง `Running` ครบ traffic w
 Character Select และ `Central City` online lobby, สร้าง gameplay load และยืนยัน
 server-side TCP/UDP Shadowsocks counter delta แล้ว ก่อน stop/stop ซ้ำและ cleanup สำเร็จ
 พร้อม `RUNNER exit=0`. ดูหลักฐาน sanitized ที่
-[PROCESSMODE_TEST_REPORT.md](PROCESSMODE_TEST_REPORT.md). **อนุมัติให้เริ่ม Step E ใน
+[processmode-test-report.md](processmode-test-report.md). **อนุมัติให้เริ่ม Step E ใน
 ขอบเขต development; production release gates ยังเป็นงานแยก**
 
 ## ข้อกำหนดความปลอดภัย

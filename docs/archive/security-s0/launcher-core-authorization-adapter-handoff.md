@@ -1,5 +1,8 @@
 # Launcher ↔ Backend ↔ NekoProxyCore Authorization Adapter Handoff
 
+> **ARCHIVED HISTORICAL SNAPSHOT:** เก็บเพื่อ trace history เท่านั้น ดูสถานะปัจจุบันที่
+> [`../../current/core-release-handoff.md`](../../current/core-release-handoff.md)
+
 วันที่จัดทำ: 2026-08-03  
 ผู้รับผิดชอบปลายทาง: Launcher, Backend, Security และ NekoProxyCore teams  
 เอกสารอ้างอิงหลัก: `tools/STEP_E_SECURITY_AUTHORIZATION_REPORT.md`  

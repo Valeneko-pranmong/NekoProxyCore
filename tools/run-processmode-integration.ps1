@@ -8,8 +8,9 @@ verifies that all RID-specific Windows runtime assemblies were staged, copies on
 approved runtime directories into a temporary directory, runs the lifecycle, and removes the
 entire temporary mirror in a finally block.
 
-A runner exit code of 0 proves lifecycle/local-SOCKS readiness only. The release gate still
-requires approved target-traffic verification and the remaining checks in TESTER_HANDOFF.md.
+A runner exit code of 0 proves lifecycle/local-SOCKS readiness only. Historical Step D criteria
+are archived in docs/archive/step-d/tester-handoff.md; current release gates are documented in
+docs/current/core-release-handoff.md.
 #>
 
 [CmdletBinding()]

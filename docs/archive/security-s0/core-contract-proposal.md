@@ -1,5 +1,8 @@
 ﻿# NekoProxyCore — Core-Owned S0 Contract Proposal
 
+> **ARCHIVED HISTORICAL SNAPSHOT:** เก็บเพื่อ trace history เท่านั้น ดูสถานะปัจจุบันที่
+> [`../../current/core-release-handoff.md`](../../current/core-release-handoff.md)
+
 **Work round:** `Core-S0-Producer-01`
 **Date:** 2026-08-03
 **Repository:** `D:\NekoProxyCore`

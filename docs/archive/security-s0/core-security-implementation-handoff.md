@@ -1,5 +1,8 @@
 # NekoProxyCore — Core Security Implementation Handoff
 
+> **ARCHIVED HISTORICAL SNAPSHOT:** เก็บเพื่อ trace history เท่านั้น ดูสถานะปัจจุบันที่
+> [`../../current/core-release-handoff.md`](../../current/core-release-handoff.md)
+
 วันที่จัดทำ: 2026-08-03  
 Repository: `D:\NekoProxyCore`  
 Branch ที่ตรวจ: `feature/neko-headless`  

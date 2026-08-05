@@ -1,8 +1,11 @@
 /.vs
 /.idea
 /release
-/packages
+/artifacts
 /TestResults
+/.hermes-verify-dotnet
+/.hermes
+/packages
 /NekoProxyCore.Host/bin/
 /NekoProxyCore.Host/obj/
 /Original setting/
