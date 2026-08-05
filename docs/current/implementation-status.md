@@ -2,13 +2,63 @@
 
 - **ผู้รับ:** NekoProxyCore Team
 - **ผู้จัดทำ:** Backend Integration Team
-- **วันที่:** 2026-08-04
-- **Repository:** `D:\Git\NekoProxyCore`
+- **วันที่:** 2026-08-05
+- **Repository:** `E:\Github\NekoProxyCore`
 - **Implementation branch:** `feature/neko-headless`
-- **Base revision:** `2a7fe1ac82868c126698ab8a13cbcca2086f2db9`
-- **สถานะ:** `INTEGRATION BUILD READY — PRODUCTION AUTHORIZATION/RELEASE BLOCKED`
+- **Source revision:** commit containing this document; parent revision `9594f7f4353646a25fe9aa0c70e03bea1379da33`
+- **สถานะ:** `CANONICAL WIN-X64 PUBLISH LOCALLY VERIFIED — PRODUCTION AUTHORIZATION/SIGNING MATERIAL BLOCKED`
 
-> เอกสารนี้รายงานสถานะของ working tree ปัจจุบัน ซึ่งยังมี source changes และ artifacts ที่ยังไม่ได้ commit จึงไม่ใช่ production release approval หรือหลักฐานว่า NekoProxyCore Owner ยอมรับ contract แล้ว
+> เอกสารนี้รายงานสถานะของ source revision ที่มีเอกสารฉบับนี้และ release artifacts ที่ส่งมอบแยกจาก Git; ไม่ใช่ production authorization/signing approval หรือหลักฐานว่า Security/Release Owner ยอมรับ contract แล้ว
+
+## 0. Fresh authorization-composition update — 2026-08-05
+
+ตรวจจาก `feature/neko-headless` ที่สืบสายจาก parent revision
+`9594f7f4353646a25fe9aa0c70e03bea1379da33` และ frozen baseline
+`99480e99c3f5f4b0f6c4a32fdbbb4911be2a3687`:
+
+- เพิ่ม `NekoProxyCore.Core/ProductionAuthorizationComposition.cs` เพื่อ pin
+  `NEKO-AUTH-S0/s0-rc1` และ package SHA-256
+  `6697351b6b280afc566fedaaa1a6cfe207b1ea1d803c2eb613b4c1a891e192df`
+- `NekoProxyCore.Host/Program.cs` เรียก composition root นี้อย่าง explicit
+- composition ปัจจุบันคืน `AuthorizationRequiredStartAuthorizer` เท่านั้น เพราะไม่มี
+  approved immutable public-key release/trusted-time composition ใน workspace
+- เพิ่ม tests ยืนยัน contract identity และยืนยันว่าปัจจุบัน start ถูกปฏิเสธด้วย
+  `AuthorizationRequired`
+
+Fresh source-tree verification หลังแก้ canonical publish graph:
+
+```text
+dotnet test Tests/Tests.csproj -c Release -p:Platform=x64 --no-restore --nologo
+Passed: 103, Failed: 0, Skipped: 0
+
+dotnet publish NekoProxyCore.Host/NekoProxyCore.Host.csproj \
+  -c Release -f net6.0-windows -r win-x64 -p:Platform=x64 \
+  --self-contained false -o TestResults/canonical-release-final --nologo -m:1
+Publish: passed
+```
+
+Canonical publish นี้สร้างโดยตรงจาก working tree ปัจจุบันโดยไม่ใช้ Audit overlays:
+
+```text
+File count: 243
+PDB/runtime-generated files: 0
+NekoProxyCore.exe: 151,040 bytes
+NekoProxyCore.exe SHA-256: 1b9b0ba313ac1f8c879f07f678a2f01e5b334c29fc17323533017aed2cbffcfe
+NekoProxyCore.dll SHA-256: 1703322471e47baf9897a9ee05e8d2600e8ce150a5a61b5c10142d0a6d6c3acb
+NekoProxyCore.Core.dll SHA-256: ebb2dde1674aef7c6ef06bc5606dbcc32ab6148da830f7d70dc5202e6377c033
+NekoProxyCore.deps.json: present
+Named Pipe challenge: passed
+Initial status: Stopped
+Synthetic start: AuthorizationRequired
+Stop: Stopped
+Credentials used: false
+```
+
+Canonical publish blocker ถูกปิดแล้ว สถานะที่ถูกต้องคือ **source-bound canonical Release publish
+และ fail-closed composition locally verified** แต่ยังไม่ใช่ production authorization enabled.
+Approved immutable production public-key release/trusted-clock composition, Launcher production
+gateway, code-signing certificate, authorized `start -> Running`, renewal/runtime enforcement,
+S1 access และ Security/Release approval ยังคง `BLOCKED`.
 
 ---
 
@@ -16,7 +66,7 @@
 
 Backend Integration Team เข้ามาปิดช่องว่างด้าน executable host และ packaging เพื่อไม่ให้โครงการรอการประสานงานระหว่างทีมโดยไม่มีกำหนด ปัจจุบันสามารถ build และ publish `NekoProxyCore.exe` สำหรับ `win-x64` พร้อม runtime files ที่จำเป็น และทีม Launcher สามารถนำ bundle ไปประกอบ transport/lifecycle integration ได้แล้ว
 
-อย่างไรก็ตาม เส้นทาง `start` ยังตั้งใจ **fail closed** และตอบ `AuthorizationRequired` เพราะ production `StrictLaunchPermitVerifier`, immutable production public-key allow-list และ continuous-authorization contract ที่สมบูรณ์ยังไม่มีให้ประกอบ ห้ามแก้ให้ start ผ่านด้วย allow-all verifier, local signer, static secret, cached permit หรือ authorization bypass
+อย่างไรก็ตาม เส้นทาง `start` ยังตั้งใจ **fail closed** และตอบ `AuthorizationRequired` เพราะแม้มี `StrictLaunchPermitVerifier` แล้ว แต่ยังไม่มี approved immutable production public-key allow-list, trusted-clock release composition และ continuous-authorization contract ที่สมบูรณ์ ห้ามแก้ให้ start ผ่านด้วย allow-all verifier, local signer, static secret, cached permit หรือ authorization bypass
 
 สถานะโดยย่อ:
 
@@ -28,7 +78,7 @@ Backend Integration Team เข้ามาปิดช่องว่างด�
 | Challenge lifecycle | `IMPLEMENTED/VERIFIED` | 32-byte CSPRNG, 43-char base64url, one outstanding/one use |
 | Legacy ProcessMode composition | `IMPLEMENTED/PARTIAL` | Host ประกอบ production legacy engine path แล้ว แต่ authorized successful start ยังทดสอบไม่ได้ |
 | Exact target PID/name recheck | `IMPLEMENTED/UNIT VERIFIED` | มี seam และ regression tests ก่อน engine side effect |
-| Launch permit verifier | `SCAFFOLD/PARTIAL` | Interface/canonical serializer/authorizer มีแล้ว แต่ production verifier ยังไม่มี |
+| Launch permit verifier | `IMPLEMENTED/UNIT VERIFIED; COMPOSITION BLOCKED` | Strict verifier มีแล้ว แต่ release gate ยังไม่มี approved immutable production key ring/trusted clock จึงคง `AuthorizationRequired` |
 | Continuous authorization/renewal | `BLOCKED/TBD` | `s0-rc1` ยังไม่มี Launcher ↔ Core renewal wire/token/runtime semantics |
 | Signed production bundle/manifest | `BLOCKED` | ยังไม่มี production signing/public-key release artifacts และ release approval |
 | S1 downstream proxy access | `BLOCKED` | ยังไม่มี short-lived/non-reusable runtime-bound access mechanism |
@@ -199,7 +249,7 @@ Launcher-owned Core process
    - consumer revision/commit
    - package validation result
    - Owner decision: `ACCEPT` หรือ `REJECT` พร้อมเหตุผล
-2. Implement `StrictLaunchPermitVerifier : IPermitVerifier` ตาม package exact rules:
+2. Review และ complete acceptance evidence ของ `StrictLaunchPermitVerifier : IPermitVerifier` ที่มีแล้วตาม package exact rules:
    - compact JWT สาม segments
    - exact `alg=RS256`, `typ=neko-launch+jwt`, known `kid`
    - reject `crit`, unknown/duplicate header และ claims

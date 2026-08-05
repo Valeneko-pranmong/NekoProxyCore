@@ -107,6 +107,25 @@ public sealed class IntegrationRunnerPackagingTests
     }
 
     [TestMethod]
+    public void ReleaseBuildDisablesPortableSymbolsAtTheSharedBuildBoundary()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var projectPath = Path.Combine(repositoryRoot, "Directory.Build.props");
+        Assert.IsTrue(File.Exists(projectPath), "Release symbol policy must apply to every project in the graph.");
+        var document = XDocument.Load(projectPath);
+        var releaseProperties = document
+            .Descendants("PropertyGroup")
+            .SingleOrDefault(item => string.Equals(
+                item.Attribute("Condition")?.Value,
+                "'$(Configuration)' == 'Release'",
+                StringComparison.Ordinal));
+
+        Assert.IsNotNull(releaseProperties);
+        Assert.AreEqual("none", releaseProperties!.Element("DebugType")?.Value);
+        Assert.AreEqual("false", releaseProperties.Element("DebugSymbols")?.Value);
+    }
+
+    [TestMethod]
     public void ProductionHostPublishStagesRequiredLegacyRuntimeFiles()
     {
         var repositoryRoot = FindRepositoryRoot();
@@ -116,13 +135,67 @@ public sealed class IntegrationRunnerPackagingTests
             .Select(item => item.Attribute("Include")?.Value?.Replace('/', '\\'))
             .Where(item => item != null)
             .ToArray();
+        var stageLegacyBin = document
+            .Descendants("Target")
+            .SingleOrDefault(item => item.Attribute("Name")?.Value == "StageLegacyRuntimeBin");
 
         Assert.IsTrue(stagedFiles.Any(item => item!.Contains("Storage\\mode\\**\\*", StringComparison.Ordinal)));
         Assert.IsTrue(stagedFiles.Any(item => item!.Contains("Storage\\i18n\\**\\*", StringComparison.Ordinal)));
-        Assert.IsTrue(stagedFiles.Any(item => item!.Contains("Netch\\bin\\x64\\Release\\*.dll", StringComparison.Ordinal)));
+        Assert.IsFalse(
+            stagedFiles.Any(item => item!.Contains("Netch\\bin\\x64\\Release", StringComparison.Ordinal)),
+            "Publish must not capture mutable Netch build output during project evaluation.");
         Assert.IsTrue(document.Descendants("Link").Any(item => item.Value.StartsWith("mode\\", StringComparison.Ordinal)));
-        Assert.IsTrue(document.Descendants("Link").Any(item => item.Value.StartsWith("bin\\", StringComparison.Ordinal)));
         Assert.IsTrue(document.Descendants("CopyToPublishDirectory").Any(item => item.Value == "PreserveNewest"));
+        Assert.IsNotNull(stageLegacyBin, "Legacy bin assets must be discovered from the completed publish output.");
+        Assert.AreEqual("Publish", stageLegacyBin!.Attribute("AfterTargets")?.Value);
+        var legacyRuntimeBinIncludes = stageLegacyBin
+            .Descendants("LegacyRuntimeBinFile")
+            .Select(item => item.Attribute("Include")?.Value)
+            .Where(item => item != null)
+            .ToArray();
+        Assert.IsTrue(legacyRuntimeBinIncludes.Length > 0);
+        Assert.IsTrue(
+            legacyRuntimeBinIncludes.All(item => item!.StartsWith("$(PublishDir)", StringComparison.Ordinal)),
+            "Legacy bin assets must come from the exact completed publish output, not mutable project bin directories.");
+        var rootRuntimeBin = stageLegacyBin
+            .Descendants("LegacyRuntimeBinFile")
+            .Single(item => item.Attribute("Include")?.Value == "$(PublishDir)*.dll");
+        var excludedHostAssemblies = rootRuntimeBin.Attribute("Exclude")?.Value ?? string.Empty;
+        StringAssert.Contains(excludedHostAssemblies, "$(PublishDir)NekoProxyCore.dll");
+        StringAssert.Contains(excludedHostAssemblies, "$(PublishDir)NekoProxyCore.Legacy.dll");
+        StringAssert.Contains(excludedHostAssemblies, "$(PublishDir)NekoProxyCore.Windows.dll");
+        Assert.IsTrue(
+            stageLegacyBin
+                .Descendants("DestinationSubDirectory")
+                .Any(item => item.Value == "amd64\\"),
+            "Native amd64 assets must retain their bin/amd64 runtime layout.");
+        Assert.IsTrue(stageLegacyBin.Descendants("Copy").Any());
+    }
+
+    [TestMethod]
+    public void ProductionHostUsesOneAlignedHeadlessNetchPublishGraph()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var host = XDocument.Load(Path.Combine(
+            repositoryRoot,
+            "NekoProxyCore.Host",
+            "NekoProxyCore.Host.csproj"));
+        var legacy = XDocument.Load(Path.Combine(
+            repositoryRoot,
+            "NekoProxyCore.Legacy",
+            "NekoProxyCore.Legacy.csproj"));
+
+        var hostProperties = FindNetchProjectReferenceProperties(host);
+        var legacyProperties = FindNetchProjectReferenceProperties(legacy);
+
+        Assert.AreEqual(
+            "HeadlessCoreBuild=true;Platform=x64;GenerateDependencyFile=false",
+            hostProperties,
+            "The direct Host-to-Netch publish graph must disable unused legacy dependency generation.");
+        Assert.AreEqual(
+            hostProperties,
+            legacyProperties,
+            "Every path to Netch must use one aligned set of headless publish properties.");
     }
 
     [TestMethod]
@@ -196,6 +269,16 @@ public sealed class IntegrationRunnerPackagingTests
         Assert.AreEqual(3, process.ExitCode, error);
         StringAssert.Contains(output, "RUNNER exit=3");
     }
+
+    private static string? FindNetchProjectReferenceProperties(XDocument project) =>
+        project
+            .Descendants("ProjectReference")
+            .Single(item => string.Equals(
+                Path.GetFileName(item.Attribute("Include")?.Value),
+                "Netch.csproj",
+                StringComparison.OrdinalIgnoreCase))
+            .Attribute("AdditionalProperties")
+            ?.Value;
 
     private static string FindRepositoryRoot()
     {

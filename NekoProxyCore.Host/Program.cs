@@ -30,9 +30,10 @@ internal static class Program
             var engine = new NetchProcessModeEngine(new NetchProcessModeSessionResolver(), statusSink);
             var controller = new ProcessModeController(new WindowsProcessResolver(), engine);
 
-            // Production start remains fail closed until the immutable key ring and strict
-            // s0-rc1 RS256 verifier are supplied by the approved release composition.
-            var runtime = new HeadlessRuntimeCoordinator(controller, statusSink);
+            // The release composition pins NEKO-AUTH-S0 and remains fail closed until
+            // approved immutable public keys and trusted-clock material are supplied.
+            var startAuthorizer = ProductionAuthorizationComposition.CreateStartAuthorizer();
+            var runtime = new HeadlessRuntimeCoordinator(controller, startAuthorizer, statusSink);
             var server = new HeadlessControlServer(runtime, new CoreChallengeService());
             try
             {

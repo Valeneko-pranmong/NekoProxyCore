@@ -18,7 +18,8 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net6.0-windows'">
-    <ProjectReference Include="..\Netch\Netch.csproj" />
+    <ProjectReference Include="..\Netch\Netch.csproj"
+                      AdditionalProperties="HeadlessCoreBuild=true;Platform=x64;GenerateDependencyFile=false" />
   </ItemGroup>
 
 </Project>
