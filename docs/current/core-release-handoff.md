@@ -369,8 +369,9 @@ Default ที่ถูกต้องระหว่างรอคือ `Auth
 
 ## 10. Handoff decision
 
-**งาน implementation และ canonical packaging ฝั่ง Core ปิดแล้ว** ที่ revision
-`ce365ebccf976a752854609d2f42d738bfbfd039`
+**รอบ canonical publish และ package implementation ฝั่ง Core สำหรับ Launcher handoff นี้ปิดแล้ว**
+ที่ runtime/package source revision `ce365ebccf976a752854609d2f42d738bfbfd039`
+ข้อความนี้ไม่รวม P0/P1 production authorization, hardening, signing หรือ cross-team release gates ด้านล่าง
 
 **ทีม Launcher รับ `release/NekoProxyCore-win-x64.zip` ไปประกอบได้แล้ว** สำหรับ
 process/pipe/protocol/fail-closed lifecycle tests
