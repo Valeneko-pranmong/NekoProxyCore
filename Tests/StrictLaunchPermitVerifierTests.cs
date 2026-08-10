@@ -14,7 +14,7 @@ namespace Tests;
 public sealed class StrictLaunchPermitVerifierTests
 {
     private const long Now = 2_000_000_001;
-    private const string Kid = "test-s0-rs256-01";
+    private const string Kid = "neko-prod-key-2";
     private const string Challenge = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
     [TestMethod]
@@ -72,6 +72,56 @@ public sealed class StrictLaunchPermitVerifierTests
 
         Assert.AreEqual(ProxyErrorCode.AuthorizationInvalid, unknownError!.Code);
         Assert.AreEqual(ProxyErrorCode.AuthorizationUnavailable, unavailableError!.Code);
+    }
+
+    [TestMethod]
+    public async Task RetiredKeyOneAndUnknownKeyIdsAreRejected()
+    {
+        using var fixture = PermitFixture.Create();
+        var verifier = fixture.CreateVerifier();
+
+        var retired = await verifier.VerifyAsync(
+            fixture.CreatePermit(keyId: "neko-prod-key-1"),
+            fixture.Configuration,
+            Challenge,
+            CancellationToken.None);
+        var unknown = await verifier.VerifyAsync(
+            fixture.CreatePermit(keyId: "unknown-key"),
+            fixture.Configuration,
+            Challenge,
+            CancellationToken.None);
+
+        Assert.AreEqual(ProxyErrorCode.AuthorizationInvalid, retired!.Code);
+        Assert.AreEqual(ProxyErrorCode.AuthorizationInvalid, unknown!.Code);
+    }
+
+    [TestMethod]
+    public async Task ModifiedPublicKeyWithCanonicalKeyIdRejectsTheSignature()
+    {
+        using var fixture = PermitFixture.Create();
+        using var unrelated = RSA.Create(2048);
+        using var unrelatedPublicKey = RsaTrustedPublicKey.FromParameters(unrelated.ExportParameters(false));
+        var verifier = fixture.CreateVerifier(new ImmutableTrustedPublicKeyResolver(
+            new Dictionary<string, ITrustedPublicKey> { [Kid] = unrelatedPublicKey }));
+
+        var error = await verifier.VerifyAsync(
+            fixture.CreatePermit(), fixture.Configuration, Challenge, CancellationToken.None);
+
+        Assert.AreEqual(ProxyErrorCode.AuthorizationInvalid, error!.Code);
+    }
+
+    [TestMethod]
+    public async Task AlgorithmOtherThanRs256IsRejected()
+    {
+        using var fixture = PermitFixture.Create();
+
+        var error = await fixture.CreateVerifier().VerifyAsync(
+            fixture.CreatePermit(algorithm: "PS256"),
+            fixture.Configuration,
+            Challenge,
+            CancellationToken.None);
+
+        Assert.AreEqual(ProxyErrorCode.AuthorizationInvalid, error!.Code);
     }
 
     [TestMethod]
@@ -231,7 +281,10 @@ public sealed class StrictLaunchPermitVerifierTests
 
         public StrictLaunchPermitVerifier CreateVerifier(ITrustedUtcClock clock) => CreateVerifier(null, clock);
 
-        public SensitivePermit CreatePermit(Dictionary<string, object>? claimOverrides = null)
+        public SensitivePermit CreatePermit(
+            Dictionary<string, object>? claimOverrides = null,
+            string keyId = Kid,
+            string algorithm = "RS256")
         {
             var claims = CreateClaims();
             if (claimOverrides != null)
@@ -240,18 +293,21 @@ public sealed class StrictLaunchPermitVerifierTests
                     claims[item.Key] = item.Value;
             }
 
-            return SignRawPayload(JsonSerializer.Serialize(claims));
+            return SignRawPayload(JsonSerializer.Serialize(claims), keyId, algorithm);
         }
 
         public string CreatePayloadJson() => JsonSerializer.Serialize(CreateClaims());
 
-        public SensitivePermit SignRawPayload(string payload)
+        public SensitivePermit SignRawPayload(
+            string payload,
+            string keyId = Kid,
+            string algorithm = "RS256")
         {
             var header = JsonSerializer.Serialize(new Dictionary<string, object>
             {
-                ["alg"] = "RS256",
+                ["alg"] = algorithm,
                 ["typ"] = "neko-launch+jwt",
-                ["kid"] = Kid
+                ["kid"] = keyId
             });
             var signingInput = Base64Url(Encoding.UTF8.GetBytes(header)) + "." +
                                Base64Url(Encoding.UTF8.GetBytes(payload));

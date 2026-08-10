@@ -5,7 +5,7 @@ namespace NekoProxyCore.Host.Authorization;
 
 public static class ProductionPublicKeys
 {
-    public const string CanonicalKeyId = "neko-prod-key-1";
+    public const string CanonicalKeyId = "neko-prod-key-2";
     public const string ResourceName = "NekoProxyCore.Host.Authorization.production-public-keys.json";
 
     public static IReadOnlyDictionary<string, RSAParameters> LoadBundled()

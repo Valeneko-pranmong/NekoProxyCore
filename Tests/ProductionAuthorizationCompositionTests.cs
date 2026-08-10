@@ -18,7 +18,7 @@ public sealed class ProductionAuthorizationCompositionTests
     {
         using var signer = RSA.Create(2048);
         var expected = signer.ExportParameters(false);
-        var json = "{\"version\":1,\"keys\":[{\"kid\":\"neko-prod-key-1\",\"modulus\":\"" +
+        var json = "{\"version\":1,\"keys\":[{\"kid\":\"neko-prod-key-2\",\"modulus\":\"" +
                    Base64Url(expected.Modulus!) + "\",\"exponent\":\"" +
                    Base64Url(expected.Exponent!) + "\"}]}";
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
@@ -40,6 +40,8 @@ public sealed class ProductionAuthorizationCompositionTests
             "{\"version\":1,\"version\":1,\"keys\":[]}",
             "{\"version\":1,\"keys\":[{\"kid\":\"key-1\",\"modulus\":\"not-base64url!\",\"exponent\":\"AQAB\"}]}",
             "{\"version\":1,\"keys\":[{\"kid\":\"another-key\",\"modulus\":\"" +
+                Base64Url(new byte[256]) + "\",\"exponent\":\"AQAB\"}]}",
+            "{\"version\":1,\"keys\":[{\"kid\":\"neko-prod-key-1\",\"modulus\":\"" +
                 Base64Url(new byte[256]) + "\",\"exponent\":\"AQAB\"}]}"
         };
 
@@ -55,8 +57,17 @@ public sealed class ProductionAuthorizationCompositionTests
     {
         var keys = ProductionPublicKeys.LoadBundled();
 
+        Assert.AreEqual("neko-prod-key-2", ProductionPublicKeys.CanonicalKeyId);
         Assert.AreEqual(1, keys.Count);
         Assert.IsTrue(keys.ContainsKey(ProductionPublicKeys.CanonicalKeyId));
+        Assert.IsFalse(keys.ContainsKey("neko-prod-key-1"));
+
+        using var rsa = RSA.Create();
+        rsa.ImportParameters(keys[ProductionPublicKeys.CanonicalKeyId]);
+        Assert.AreEqual(3072, rsa.KeySize);
+        Assert.AreEqual(
+            "4a0ef40a483c6a4f294724ea62d0ae55357176e196c9747defec06769a0d0801",
+            Convert.ToHexString(SHA256.HashData(rsa.ExportSubjectPublicKeyInfo())).ToLowerInvariant());
     }
 
     [TestMethod]

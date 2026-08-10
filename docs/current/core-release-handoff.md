@@ -21,7 +21,7 @@
 `99480e99c3f5f4b0f6c4a32fdbbb4911be2a3687` ยังเป็น ancestor
 
 - Launcher production gate: `READY=True`, blockers `0`
-- Canonical permit: RS256, `kid=neko-prod-key-1`, lifetime 30 วินาที และ response `{permit}`
+- Canonical permit: RS256, `kid=neko-prod-key-2`, lifetime 30 วินาที และ response `{permit}`; `neko-prod-key-1` is PRE-LAUNCH RETIRED and is not accepted
 - Core bundle public keyอย่างเดียวและโหลด trust ก่อนสร้าง engine/runtime; ไม่มี private key/env bypass/fallback signer
 - Launcher/Core transportตรงกันที่ current-user pipe `NekoProxyCoreControl`, newline-delimited JSON,
   `type`/`correlationId` และ response types `challengeResponse`, `startResponse`, `statusResponse`, `stopResponse`
