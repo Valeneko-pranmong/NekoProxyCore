@@ -11,25 +11,44 @@ internal sealed class HeadlessControlServer
 
     private readonly IProxyRuntime _runtime;
     private readonly ICoreChallengeService _challenges;
+    private readonly HostShutdownSignal _shutdown;
+    private readonly string _pipeName;
 
-    public HeadlessControlServer(IProxyRuntime runtime, ICoreChallengeService challenges)
+    public HeadlessControlServer(
+        IProxyRuntime runtime,
+        ICoreChallengeService challenges,
+        HostShutdownSignal shutdown,
+        string pipeName = PipeName)
     {
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _challenges = challenges ?? throw new ArgumentNullException(nameof(challenges));
+        _shutdown = shutdown ?? throw new ArgumentNullException(nameof(shutdown));
+        _pipeName = string.IsNullOrWhiteSpace(pipeName)
+            ? throw new ArgumentException("A pipe name is required.", nameof(pipeName))
+            : pipeName;
     }
+
+    internal string PipeNameForTesting => _pipeName;
 
     public async Task RunAsync(CancellationToken cancellationToken)
     {
-        while (!cancellationToken.IsCancellationRequested)
+        try
         {
-            await using var pipe = new NamedPipeServerStream(
-                PipeName,
-                PipeDirection.InOut,
-                1,
-                PipeTransmissionMode.Byte,
-                PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-            await pipe.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
-            await ServeClientAsync(pipe, cancellationToken).ConfigureAwait(false);
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await using var pipe = new NamedPipeServerStream(
+                    _pipeName,
+                    PipeDirection.InOut,
+                    1,
+                    PipeTransmissionMode.Byte,
+                    PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+                await pipe.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
+                await ServeClientAsync(pipe, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Graceful host shutdown closes the active pipe and completes the normal host loop.
         }
     }
 
@@ -41,44 +60,61 @@ internal sealed class HeadlessControlServer
             if (frame is null)
                 return;
 
-            string response;
+            DispatchResult dispatch;
             if (!ControlProtocol.TryParseRequest(frame, _challenges, out var request, out var error))
             {
-                response = ControlProtocol.Serialize(error!);
+                dispatch = new DispatchResult(ControlProtocol.Serialize(error!), false);
             }
             else
             {
-                response = await DispatchAsync(request!, cancellationToken).ConfigureAwait(false);
+                dispatch = await DispatchAsync(request!, cancellationToken).ConfigureAwait(false);
             }
 
-            await WriteFrameAsync(stream, response, cancellationToken).ConfigureAwait(false);
+            await WriteFrameAsync(stream, dispatch.Response, cancellationToken).ConfigureAwait(false);
+            if (dispatch.RequestHostShutdown)
+            {
+                _shutdown.RequestShutdown();
+                return;
+            }
         }
     }
 
-    private async Task<string> DispatchAsync(ControlRequest request, CancellationToken cancellationToken)
+    private async Task<DispatchResult> DispatchAsync(
+        ControlRequest request,
+        CancellationToken cancellationToken)
     {
         switch (request.Command)
         {
             case ControlCommand.Challenge:
-                return ControlProtocol.SerializeChallenge(request.CorrelationId, _challenges.Issue());
+                return Response(ControlProtocol.SerializeChallenge(request.CorrelationId, _challenges.Issue()));
             case ControlCommand.Start:
                 if (!request.TryCreateStartRequest(out var startRequest, out var error))
-                    return ControlProtocol.Serialize(error!);
-                return ControlProtocol.Serialize(
+                    return Response(ControlProtocol.Serialize(error!));
+                return Response(ControlProtocol.Serialize(
                     ControlResponse.FromResult(await _runtime.StartAsync(startRequest!).ConfigureAwait(false)),
-                    "startResponse");
+                    "startResponse"));
             case ControlCommand.Status:
-                return ControlProtocol.Serialize(ControlResponse.FromStatus(
+                return Response(ControlProtocol.Serialize(ControlResponse.FromStatus(
                     await _runtime.GetStatusAsync(cancellationToken).ConfigureAwait(false),
-                    request.CorrelationId), "statusResponse");
+                    request.CorrelationId), "statusResponse"));
             case ControlCommand.Stop:
-                return ControlProtocol.Serialize(ControlResponse.FromResult(
+                return Response(ControlProtocol.Serialize(ControlResponse.FromResult(
                     await _runtime.StopAsync(cancellationToken).ConfigureAwait(false),
-                    request.CorrelationId), "stopResponse");
+                    request.CorrelationId), "stopResponse"));
+            case ControlCommand.Shutdown:
+                var stopped = await _runtime.StopAsync(cancellationToken).ConfigureAwait(false);
+                return stopped.Succeeded && stopped.Status == ProxyStatusKind.Stopped
+                    ? new DispatchResult(
+                        ControlProtocol.Serialize(ControlResponse.ShutdownSuccess(request.CorrelationId)),
+                        true)
+                    : Response(ControlProtocol.Serialize(
+                        ControlResponse.ShutdownFailure(stopped, request.CorrelationId)));
             default:
                 throw new InvalidOperationException("Unsupported control command.");
         }
     }
+
+    private static DispatchResult Response(string response) => new(response, false);
 
     private static async Task<string?> ReadFrameAsync(Stream stream, CancellationToken cancellationToken)
     {
@@ -106,4 +142,6 @@ internal sealed class HeadlessControlServer
         await stream.WriteAsync(payload, cancellationToken).ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    private sealed record DispatchResult(string Response, bool RequestHostShutdown);
 }

@@ -19,12 +19,12 @@ internal static class Program
             return 3;
 
         using (lease)
-        using (var shutdown = new CancellationTokenSource())
+        using (var shutdown = new HostShutdownSignal())
         {
             Console.CancelKeyPress += (_, eventArgs) =>
             {
                 eventArgs.Cancel = true;
-                shutdown.Cancel();
+                shutdown.RequestShutdown();
             };
 
             HeadlessRuntimeCoordinator? runtime = null;
@@ -38,13 +38,14 @@ internal static class Program
                 var engine = new NetchProcessModeEngine(new NetchProcessModeSessionResolver(), statusSink);
                 var controller = new ProcessModeController(new WindowsProcessResolver(), engine);
                 runtime = new HeadlessRuntimeCoordinator(controller, startAuthorizer, statusSink);
-                var server = new HeadlessControlServer(runtime, new CoreChallengeService());
+                var server = new HeadlessControlServer(runtime, new CoreChallengeService(), shutdown);
 
                 await NetchRuntimeBootstrap.InitializeAsync(AppContext.BaseDirectory).ConfigureAwait(false);
                 await server.RunAsync(shutdown.Token).ConfigureAwait(false);
+                await runtime.StopAsync().ConfigureAwait(false);
                 return 0;
             }
-            catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
+            catch (OperationCanceledException) when (shutdown.IsShutdownRequested)
             {
                 if (runtime != null)
                     await runtime.StopAsync().ConfigureAwait(false);

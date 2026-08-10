@@ -164,6 +164,9 @@ public static class ControlProtocol
             case "stop":
                 command = ControlCommand.Stop;
                 return true;
+            case "shutdown":
+                command = ControlCommand.Shutdown;
+                return true;
             default:
                 command = default;
                 return false;

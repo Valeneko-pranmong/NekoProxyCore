@@ -7,7 +7,8 @@ public enum ControlCommand
     Start = 0,
     Status = 1,
     Stop = 2,
-    Challenge = 3
+    Challenge = 3,
+    Shutdown = 4
 }
 
 public sealed class ControlRequest

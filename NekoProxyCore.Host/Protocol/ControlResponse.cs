@@ -46,6 +46,12 @@ public sealed class ControlResponse
                 ? MapWireError(status.Error?.Code) ?? ProxyErrorCode.AuthorizationUnavailable
                 : null);
 
+    public static ControlResponse ShutdownSuccess(string correlationId) =>
+        new("shutdownResponse", correlationId, ProxyStatusKind.Stopped, true, null);
+
+    public static ControlResponse ShutdownFailure(ProxyResult result, string correlationId) =>
+        new("shutdownResponse", correlationId, result.Status, false, MapWireError(result.Error?.Code));
+
     private static ProxyErrorCode? MapWireError(ProxyErrorCode? code) => code switch
     {
         null => null,

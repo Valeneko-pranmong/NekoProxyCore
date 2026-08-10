@@ -88,6 +88,8 @@ public sealed class HeadlessHostProtocolTests
     [DataRow("{\"version\":2,\"command\":\"status\",\"correlationId\":\"password=sentinel\"}")]
     [DataRow("{\"version\":2,\"command\":\"status\",\"correlationId\":\"0123456789abcdef0123456789abcdef\",\"extra\":true}")]
     [DataRow("{\"version\":2,\"version\":2,\"command\":\"status\",\"correlationId\":\"0123456789abcdef0123456789abcdef\"}")]
+    [DataRow("{\"type\":\"unknown\",\"correlationId\":\"0123456789abcdef0123456789abcdef\"}")]
+    [DataRow("[]")]
     public void InvalidRequestsReturnOnlyTypedProtocolError(string json)
     {
         Assert.IsFalse(ControlProtocol.TryParseRequest(json, out var request, out var error));
@@ -163,6 +165,56 @@ public sealed class HeadlessHostProtocolTests
             "\"correlationId\":\"0123456789abcdef0123456789abcdef\"",
             StringComparison.Ordinal));
         Assert.IsFalse(json.Contains("runtime-correlation", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void ShutdownRequestIsAcceptedWithCanonicalShape()
+    {
+        const string json = "{\"type\":\"shutdown\",\"correlationId\":\"0123456789abcdef0123456789abcdef\"}";
+
+        Assert.IsTrue(ControlProtocol.TryParseRequest(json, out var request, out var error));
+        Assert.IsNull(error);
+        Assert.AreEqual(ControlCommand.Shutdown, request!.Command);
+    }
+
+    [DataTestMethod]
+    [DataRow("{\"type\":\"shutdown\"}")]
+    [DataRow("{\"type\":\"shutdown\",\"correlationId\":\"invalid\"}")]
+    [DataRow("{\"type\":\"shutdown\",\"correlationId\":\"0123456789abcdef0123456789abcdef\",\"extra\":true}")]
+    [DataRow("{\"type\":\"shutdown\",\"correlationId\":12345678901234567890123456789012}")]
+    [DataRow("{\"type\":\"shutdown\",\"correlationId\":\"0123456789abcdef0123456789abcdef\",\"permit\":\"header.payload.signature\"}")]
+    public void MalformedShutdownRequestsAreRejected(string json)
+    {
+        Assert.IsFalse(ControlProtocol.TryParseRequest(json, out var request, out var error));
+        Assert.IsNull(request);
+        Assert.AreEqual(ProxyErrorCode.ProtocolInvalid, error!.ErrorCode);
+    }
+
+    [TestMethod]
+    public void ShutdownResponseSerializesCanonicalFields()
+    {
+        var json = ControlProtocol.Serialize(ControlResponse.ShutdownSuccess("0123456789abcdef0123456789abcdef"));
+
+        Assert.AreEqual(
+            "{\"type\":\"shutdownResponse\",\"correlationId\":\"0123456789abcdef0123456789abcdef\",\"status\":\"Stopped\",\"succeeded\":true}",
+            json);
+    }
+
+    [TestMethod]
+    public void ShutdownDoesNotConsumeOrBypassStartChallengeAdmission()
+    {
+        const string shutdown = "{\"type\":\"shutdown\",\"correlationId\":\"0123456789abcdef0123456789abcdef\"}";
+        const string start = "{\"type\":\"start\",\"correlationId\":\"fedcba9876543210fedcba9876543210\",\"protocolVersion\":2,\"mode\":\"ProcessMode\",\"processName\":\"pso2.exe\",\"targetPid\":4242,\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\",\"permit\":\"header.payload.signature\"}";
+        var challenges = new CoreChallengeService();
+
+        Assert.IsTrue(ControlProtocol.TryParseRequest(shutdown, challenges, out _, out _));
+        Assert.IsFalse(ControlProtocol.TryParseRequest(start, challenges, out _, out var missingChallengeError));
+        Assert.AreEqual(ProxyErrorCode.ProtocolInvalid, missingChallengeError!.ErrorCode);
+
+        challenges.Issue();
+        Assert.IsTrue(ControlProtocol.TryParseRequest(shutdown, challenges, out _, out _));
+        Assert.IsTrue(ControlProtocol.TryParseRequest(start, challenges, out var admittedStart, out _));
+        Assert.AreEqual(ControlCommand.Start, admittedStart!.Command);
     }
 
     [TestMethod]
