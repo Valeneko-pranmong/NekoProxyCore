@@ -40,11 +40,71 @@ public sealed class ProcessModeController : IProxyModeController, IProcessExitWa
 
     public async Task StartAsync(ProxyConfiguration configuration, CancellationToken cancellationToken)
     {
-        await VerifyAsync(configuration, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await VerifyAsync(configuration, cancellationToken).ConfigureAwait(false);
+            Report(
+                CoreDiagnosticStage.RuntimeTargetRecheck,
+                CoreDiagnosticCategory.StageCompleted);
+        }
+        catch (OperationCanceledException)
+        {
+            Report(
+                CoreDiagnosticStage.RuntimeTargetRecheck,
+                CoreDiagnosticCategory.RuntimeTargetCancelled);
+            throw;
+        }
+        catch (ProxyRuntimeException exception)
+        {
+            ReportRuntimeTargetFailure(CoreDiagnosticStage.RuntimeTargetRecheck, exception.Code);
+            throw;
+        }
+        catch (Exception)
+        {
+            Report(
+                CoreDiagnosticStage.RuntimeTargetRecheck,
+                CoreDiagnosticCategory.RuntimeTargetUnexpectedException);
+            throw;
+        }
+
         await _engine.StartAsync(configuration, cancellationToken).ConfigureAwait(false);
 
-        if (!await IsTargetRunningAsync(configuration, cancellationToken).ConfigureAwait(false))
-            throw new ProxyRuntimeException(ProxyErrorCode.ProcessExited, "The target process exited during startup.");
+        try
+        {
+            if (!await IsTargetRunningAsync(configuration, cancellationToken).ConfigureAwait(false))
+            {
+                Report(
+                    CoreDiagnosticStage.RuntimeTargetPostcheck,
+                    CoreDiagnosticCategory.RuntimeTargetProcessExited);
+                throw new ProxyRuntimeException(
+                    ProxyErrorCode.ProcessExited,
+                    "The target process exited during startup.");
+            }
+
+            Report(
+                CoreDiagnosticStage.RuntimeTargetPostcheck,
+                CoreDiagnosticCategory.StageCompleted);
+        }
+        catch (OperationCanceledException)
+        {
+            Report(
+                CoreDiagnosticStage.RuntimeTargetPostcheck,
+                CoreDiagnosticCategory.RuntimeTargetCancelled);
+            throw;
+        }
+        catch (ProxyRuntimeException exception)
+        {
+            if (exception.Code != ProxyErrorCode.ProcessExited)
+                ReportRuntimeTargetFailure(CoreDiagnosticStage.RuntimeTargetPostcheck, exception.Code);
+            throw;
+        }
+        catch (Exception)
+        {
+            Report(
+                CoreDiagnosticStage.RuntimeTargetPostcheck,
+                CoreDiagnosticCategory.RuntimeTargetUnexpectedException);
+            throw;
+        }
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => _engine.StopAsync(cancellationToken);
@@ -95,4 +155,21 @@ public sealed class ProcessModeController : IProxyModeController, IProcessExitWa
             _diagnostics,
             CoreDiagnosticStage.ProcessPrecondition,
             CoreDiagnosticCategory.ProcessExactResolverUnavailable);
+
+    private void ReportRuntimeTargetFailure(CoreDiagnosticStage stage, ProxyErrorCode code)
+    {
+        var category = code switch
+        {
+            ProxyErrorCode.ProcessNotFound => CoreDiagnosticCategory.RuntimeTargetProcessNotFound,
+            ProxyErrorCode.ProcessExited => CoreDiagnosticCategory.RuntimeTargetProcessExited,
+            ProxyErrorCode.AuthorizationUnavailable =>
+                CoreDiagnosticCategory.RuntimeTargetVerificationUnavailable,
+            ProxyErrorCode.UnsupportedMode => CoreDiagnosticCategory.RuntimeTargetUnsupportedMode,
+            _ => CoreDiagnosticCategory.RuntimeTargetUnexpectedException
+        };
+        Report(stage, category);
+    }
+
+    private void Report(CoreDiagnosticStage stage, CoreDiagnosticCategory category) =>
+        CoreDiagnosticReporter.ReportSafely(_diagnostics, stage, category);
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NekoProxyCore.Core;
 using NekoProxyCore.Host.Protocol;
@@ -218,7 +219,7 @@ public sealed class HeadlessHostProtocolTests
     }
 
     [TestMethod]
-    public void NonWireRuntimeErrorMapsToFrozenUnavailableCode()
+    public void InvalidRuntimeConfigurationMapsToApprovedConfigurationMismatchCode()
     {
         var result = ProxyResult.Failure(
             ProxyStatusKind.Failed,
@@ -227,7 +228,52 @@ public sealed class HeadlessHostProtocolTests
 
         var json = ControlProtocol.Serialize(ControlResponse.FromResult(result));
 
-        Assert.IsTrue(json.Contains("\"errorCode\":\"AuthorizationUnavailable\"", StringComparison.Ordinal));
+        Assert.IsTrue(json.Contains("\"errorCode\":\"ConfigurationMismatch\"", StringComparison.Ordinal));
         Assert.IsFalse(json.Contains("InvalidConfiguration", StringComparison.Ordinal));
+    }
+
+    [DataTestMethod]
+    [DataRow(ProxyErrorCode.UnsupportedMode)]
+    [DataRow(ProxyErrorCode.NotRunning)]
+    [DataRow(ProxyErrorCode.Timeout)]
+    public void RemainingNonWireRuntimeErrorsStillFailClosedAsUnavailable(ProxyErrorCode code)
+    {
+        var result = ProxyResult.Failure(
+            ProxyStatusKind.Failed,
+            "0123456789abcdef0123456789abcdef",
+            new ProxyError(code, "ignored"));
+
+        var json = ControlProtocol.Serialize(ControlResponse.FromResult(result));
+
+        Assert.IsTrue(json.Contains("\"errorCode\":\"AuthorizationUnavailable\"", StringComparison.Ordinal));
+        Assert.IsFalse(json.Contains(code.ToString(), StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void WireMapperCoversEveryDefinedErrorCodeWithAnExplicitRegressionPolicy()
+    {
+        var translated = Enum.GetValues<ProxyErrorCode>()
+            .Where(code => code != ProxyErrorCode.AuthorizationUnavailable)
+            .Where(code => ControlResponse.FromResult(ProxyResult.Failure(
+                    ProxyStatusKind.Failed,
+                    "0123456789abcdef0123456789abcdef",
+                    new ProxyError(code, "ignored")))
+                .ErrorCode == ProxyErrorCode.AuthorizationUnavailable)
+            .ToArray();
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                ProxyErrorCode.NotRunning,
+                ProxyErrorCode.UnsupportedMode,
+                ProxyErrorCode.Timeout
+            },
+            translated);
+
+        var invalidConfiguration = ControlResponse.FromResult(ProxyResult.Failure(
+            ProxyStatusKind.Failed,
+            "0123456789abcdef0123456789abcdef",
+            new ProxyError(ProxyErrorCode.InvalidConfiguration, "ignored")));
+        Assert.AreEqual(ProxyErrorCode.ConfigurationMismatch, invalidConfiguration.ErrorCode);
     }
 }

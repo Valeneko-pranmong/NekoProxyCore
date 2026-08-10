@@ -139,7 +139,7 @@ public sealed class HeadlessRuntimeTests
     }
 
     [TestMethod]
-    public async Task PartialModeStartCleanupFailureRetainsOwnershipUntilStopRetries()
+    public async Task PartialModeStartCleanupFailurePreservesStartCauseAndRetainsOwnershipUntilStopRetries()
     {
         var controller = new PartialStartFailingController { StopFailuresRemaining = 1 };
         var runtime = CreateAuthorizedRuntime(controller);
@@ -150,8 +150,8 @@ public sealed class HeadlessRuntimeTests
         var result = await runtime.StartAsync(request);
 
         Assert.IsFalse(result.Succeeded);
-        Assert.AreEqual(ProxyErrorCode.StopFailed, result.Error!.Code);
-        Assert.AreEqual("Proxy cleanup failed.", result.Error.SafeMessage);
+        Assert.AreEqual(ProxyErrorCode.StartFailed, result.Error!.Code);
+        Assert.AreEqual("Proxy start failed.", result.Error.SafeMessage);
         Assert.AreEqual(1, controller.StopCount);
         Assert.IsTrue(controller.HasOwnedState);
 
@@ -351,6 +351,42 @@ public sealed class HeadlessRuntimeTests
         await controller.StopCompleted.Task.WaitAsync(TimeSpan.FromSeconds(1));
 
         Assert.AreEqual(1, controller.StopCount);
+        Assert.IsFalse(controller.HasOwnedState);
+    }
+
+    [TestMethod]
+    public async Task LateStartCleanupFailurePreservesTimeoutAndExplicitStopRetriesOwnership()
+    {
+        var controller = new LateCompletingStartController { StopFailuresRemaining = 1 };
+        var runtime = CreateAuthorizedRuntime(controller);
+        var configuration = new ProxyConfiguration(
+            ProxyModeKind.Process,
+            "pso2.exe",
+            "fixture-pso2",
+            "fixture-server",
+            TimeSpan.FromMilliseconds(30),
+            TimeSpan.FromSeconds(1));
+
+        var result = await runtime.StartAsync(new ProxyStartRequest(configuration, "late-cleanup-failure"));
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(ProxyErrorCode.StartTimeout, result.Error!.Code);
+
+        controller.ReleaseStart();
+        await controller.StopAttempted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        var status = await runtime.GetStatusAsync();
+        Assert.AreEqual(ProxyStatusKind.Failed, status.Status);
+        Assert.AreEqual(ProxyErrorCode.StartTimeout, status.Error!.Code);
+        Assert.AreEqual(1, controller.StopCount);
+        Assert.IsTrue(controller.HasOwnedState);
+
+        var duplicate = await runtime.StartAsync(new ProxyStartRequest(configuration, "late-cleanup-duplicate"));
+        Assert.IsFalse(duplicate.Succeeded);
+        Assert.AreEqual(ProxyErrorCode.AlreadyRunning, duplicate.Error!.Code);
+
+        var stopped = await runtime.StopAsync();
+        Assert.IsTrue(stopped.Succeeded);
+        Assert.AreEqual(2, controller.StopCount);
         Assert.IsFalse(controller.HasOwnedState);
     }
 
@@ -632,9 +668,14 @@ public sealed class HeadlessRuntimeTests
 
         public int StopCount { get; private set; }
 
+        public int StopFailuresRemaining { get; init; }
+
         public bool HasOwnedState { get; private set; }
 
         public TaskCompletionSource<object?> StopCompleted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<object?> StopAttempted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public async Task StartAsync(ProxyConfiguration configuration, CancellationToken cancellationToken)
@@ -647,6 +688,9 @@ public sealed class HeadlessRuntimeTests
         public Task StopAsync(CancellationToken cancellationToken)
         {
             StopCount++;
+            StopAttempted.TrySetResult(null);
+            if (StopFailuresRemaining >= StopCount)
+                throw new InvalidOperationException("late cleanup failure sentinel");
             HasOwnedState = false;
             StopCompleted.TrySetResult(null);
             return Task.CompletedTask;

@@ -122,8 +122,7 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
                     {
                         _ = CleanupWhenPendingStartCompletesAsync(
                             startTask,
-                            request.Configuration,
-                            request.CorrelationId);
+                            request.Configuration);
                         throw;
                     }
 
@@ -134,16 +133,18 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
                         await _modeController.StopAsync(cleanupTimeout.Token)
                             .WaitAsync(request.Configuration.StopTimeout)
                             .ConfigureAwait(false);
+                        Report(
+                            CoreDiagnosticStage.RuntimeCleanup,
+                            CoreDiagnosticCategory.RuntimeCleanupCompleted);
+                        _activeConfiguration = null;
                     }
                     catch
                     {
-                        return Fail(
-                            request.CorrelationId,
-                            ProxyErrorCode.StopFailed,
-                            "Proxy cleanup failed.");
+                        Report(
+                            CoreDiagnosticStage.RuntimeCleanup,
+                            CoreDiagnosticCategory.RuntimeCleanupFailure);
                     }
 
-                    _activeConfiguration = null;
                     throw;
                 }
 
@@ -156,22 +157,27 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
             }
             catch (OperationCanceledException) when (request.CancellationToken.IsCancellationRequested)
             {
+                Report(CoreDiagnosticStage.RuntimeStart, CoreDiagnosticCategory.RuntimeStartCancelled);
                 return Fail(request.CorrelationId, ProxyErrorCode.Cancelled, "Proxy start was cancelled.");
             }
             catch (OperationCanceledException)
             {
+                Report(CoreDiagnosticStage.RuntimeStart, CoreDiagnosticCategory.RuntimeStartTimeout);
                 return Fail(request.CorrelationId, ProxyErrorCode.StartTimeout, "Proxy start timed out.");
             }
             catch (TimeoutException)
             {
+                Report(CoreDiagnosticStage.RuntimeStart, CoreDiagnosticCategory.RuntimeStartTimeout);
                 return Fail(request.CorrelationId, ProxyErrorCode.StartTimeout, "Proxy start timed out.");
             }
             catch (ProxyRuntimeException e)
             {
+                Report(CoreDiagnosticStage.RuntimeStart, CoreDiagnosticCategory.RuntimeStartProxyError);
                 return Fail(request.CorrelationId, e.Code, GetAllowListedRuntimeMessage(e.Code));
             }
             catch (Exception)
             {
+                Report(CoreDiagnosticStage.RuntimeStart, CoreDiagnosticCategory.RuntimeStartUnexpectedException);
                 return Fail(request.CorrelationId, ProxyErrorCode.StartFailed, "Proxy start failed.");
             }
         }
@@ -293,8 +299,7 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
 
     private async Task CleanupWhenPendingStartCompletesAsync(
         Task startTask,
-        ProxyConfiguration configuration,
-        string correlationId)
+        ProxyConfiguration configuration)
     {
         try
         {
@@ -319,10 +324,15 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
                     .WaitAsync(configuration.StopTimeout)
                     .ConfigureAwait(false);
                 _activeConfiguration = null;
+                Report(
+                    CoreDiagnosticStage.RuntimeCleanup,
+                    CoreDiagnosticCategory.RuntimeCleanupCompleted);
             }
             catch
             {
-                Fail(correlationId, ProxyErrorCode.StopFailed, "Proxy cleanup failed.");
+                Report(
+                    CoreDiagnosticStage.RuntimeCleanup,
+                    CoreDiagnosticCategory.RuntimeCleanupFailure);
             }
         }
         finally

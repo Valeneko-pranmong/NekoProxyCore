@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -78,6 +79,32 @@ public sealed class LegacyProcessModeEngineTests
         Assert.AreEqual(1, session.StopCount);
     }
 
+    [TestMethod]
+    public async Task FailedStartCleanupFailureRetainsSessionForShutdownRetry()
+    {
+        using var writer = new StringWriter();
+        var diagnostics = new SanitizedTextCoreDiagnosticSink(writer);
+        var session = new FakeSession
+        {
+            StartException = new InvalidOperationException("legacy start failure"),
+            StopFailuresRemaining = 1
+        };
+        var engine = new NetchProcessModeEngine(
+            new FakeSessionResolver(session),
+            diagnostics: diagnostics);
+
+        var exception = await Assert.ThrowsExceptionAsync<ProxyRuntimeException>(
+            () => engine.StartAsync(CreateConfiguration(), CancellationToken.None));
+
+        Assert.AreEqual(ProxyErrorCode.StartFailed, exception.Code);
+        Assert.AreEqual(1, session.StopCount);
+        await engine.StopAsync(CancellationToken.None);
+        Assert.AreEqual(2, session.StopCount);
+        StringAssert.Contains(
+            writer.ToString(),
+            "stage=ENGINE_CLEANUP category=ENGINE_CLEANUP_FAILURE");
+    }
+
     private static ProxyConfiguration CreateConfiguration() =>
         new(ProxyModeKind.Process, "pso2.exe", "profile-0", "server-0");
 
@@ -130,6 +157,8 @@ public sealed class LegacyProcessModeEngineTests
 
         public int StopCount { get; private set; }
 
+        public int StopFailuresRemaining { get; init; }
+
         public TaskCompletionSource<object?> StartEntered { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -147,6 +176,8 @@ public sealed class LegacyProcessModeEngineTests
         public Task StopAsync(CancellationToken cancellationToken)
         {
             StopCount++;
+            if (StopCount <= StopFailuresRemaining)
+                throw new InvalidOperationException("legacy cleanup failure");
             return Task.CompletedTask;
         }
     }

@@ -97,8 +97,18 @@ public sealed class ControlResponse
         ProxyErrorCode.Cancelled or
         ProxyErrorCode.StartFailed or
         ProxyErrorCode.StopFailed => code,
+        ProxyErrorCode.InvalidConfiguration => MapInvalidConfiguration(diagnostics),
         _ => TranslateUnavailable(diagnostics)
     };
+
+    private static ProxyErrorCode MapInvalidConfiguration(ICoreDiagnosticSink? diagnostics)
+    {
+        CoreDiagnosticReporter.ReportSafely(
+            diagnostics ?? NullCoreDiagnosticSink.Instance,
+            CoreDiagnosticStage.ControlResponse,
+            CoreDiagnosticCategory.RuntimeInvalidConfigurationMappedToConfigurationMismatch);
+        return ProxyErrorCode.ConfigurationMismatch;
+    }
 
     private static ProxyErrorCode TranslateUnavailable(ICoreDiagnosticSink? diagnostics)
     {

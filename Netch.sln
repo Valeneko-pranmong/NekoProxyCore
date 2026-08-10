@@ -32,6 +32,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NekoProxyCore.Legacy", "Nek
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NekoProxyCore.Windows", "NekoProxyCore.Windows\NekoProxyCore.Windows.csproj", "{C98A1D5C-1BBE-4B38-9FD9-4A8F84195F24}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Tests.Windows", "Tests.Windows\Tests.Windows.csproj", "{86D0B8C5-9D82-4CE0-9B51-CC699EE75D73}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -66,6 +68,10 @@ Global
 		{C98A1D5C-1BBE-4B38-9FD9-4A8F84195F24}.Debug|x64.Build.0 = Debug|Any CPU
 		{C98A1D5C-1BBE-4B38-9FD9-4A8F84195F24}.Release|x64.ActiveCfg = Release|Any CPU
 		{C98A1D5C-1BBE-4B38-9FD9-4A8F84195F24}.Release|x64.Build.0 = Release|Any CPU
+		{86D0B8C5-9D82-4CE0-9B51-CC699EE75D73}.Debug|x64.ActiveCfg = Debug|x64
+		{86D0B8C5-9D82-4CE0-9B51-CC699EE75D73}.Debug|x64.Build.0 = Debug|x64
+		{86D0B8C5-9D82-4CE0-9B51-CC699EE75D73}.Release|x64.ActiveCfg = Release|x64
+		{86D0B8C5-9D82-4CE0-9B51-CC699EE75D73}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

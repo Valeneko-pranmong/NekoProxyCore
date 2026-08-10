@@ -8,5 +8,7 @@
 /packages
 /NekoProxyCore.Host/bin/
 /NekoProxyCore.Host/obj/
+/Tests.Windows/bin/
+/Tests.Windows/obj/
 /Original setting/
 /tools/*.pem

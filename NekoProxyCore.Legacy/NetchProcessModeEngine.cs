@@ -10,15 +10,18 @@ public sealed class NetchProcessModeEngine : IProcessModeEngine
 {
     private readonly ILegacyProcessModeSessionResolver _sessionResolver;
     private readonly IProxyStatusSink _statusSink;
+    private readonly ICoreDiagnosticSink _diagnostics;
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private ILegacyProcessModeSession? _activeSession;
 
     public NetchProcessModeEngine(
         ILegacyProcessModeSessionResolver sessionResolver,
-        IProxyStatusSink? statusSink = null)
+        IProxyStatusSink? statusSink = null,
+        ICoreDiagnosticSink? diagnostics = null)
     {
         _sessionResolver = sessionResolver ?? throw new ArgumentNullException(nameof(sessionResolver));
         _statusSink = statusSink ?? NullProxyStatusSink.Instance;
+        _diagnostics = diagnostics ?? NullCoreDiagnosticSink.Instance;
     }
 
     public async Task StartAsync(ProxyConfiguration configuration, CancellationToken cancellationToken)
@@ -42,24 +45,29 @@ public sealed class NetchProcessModeEngine : IProcessModeEngine
                     ProxyErrorCode.InvalidConfiguration,
                     "The ProcessMode profile could not be resolved.");
 
+                Report(CoreDiagnosticStage.EngineStart, CoreDiagnosticCategory.EngineStartEntered);
                 await _activeSession.StartAsync(cancellationToken).ConfigureAwait(false);
+                Report(CoreDiagnosticStage.EngineStart, CoreDiagnosticCategory.StageCompleted);
                 Publish(ProxyStatusKind.Running);
             }
             catch (OperationCanceledException)
             {
                 await CleanupFailedStartAsync(configuration.StopTimeout).ConfigureAwait(false);
+                Report(CoreDiagnosticStage.EngineStart, CoreDiagnosticCategory.EngineStartCancelled);
                 PublishFailure(ProxyErrorCode.Cancelled, "Legacy ProcessMode startup was cancelled.");
                 throw;
             }
             catch (ProxyRuntimeException exception)
             {
                 await CleanupFailedStartAsync(configuration.StopTimeout).ConfigureAwait(false);
+                Report(CoreDiagnosticStage.EngineStart, CoreDiagnosticCategory.EngineStartProxyError);
                 PublishFailure(exception.Code, exception.Message);
                 throw;
             }
             catch (Exception)
             {
                 await CleanupFailedStartAsync(configuration.StopTimeout).ConfigureAwait(false);
+                Report(CoreDiagnosticStage.EngineStart, CoreDiagnosticCategory.EngineStartUnexpectedException);
                 const string message = "The legacy ProcessMode engine could not be started.";
                 PublishFailure(ProxyErrorCode.StartFailed, message);
                 throw new ProxyRuntimeException(ProxyErrorCode.StartFailed, message);
@@ -112,19 +120,25 @@ public sealed class NetchProcessModeEngine : IProcessModeEngine
     private async Task CleanupFailedStartAsync(TimeSpan stopTimeout)
     {
         var session = _activeSession;
-        _activeSession = null;
         if (session == null)
             return;
 
         try
         {
             await session.StopAsync(CancellationToken.None).WaitAsync(stopTimeout).ConfigureAwait(false);
+            _activeSession = null;
+            Report(CoreDiagnosticStage.EngineCleanup, CoreDiagnosticCategory.EngineCleanupCompleted);
         }
         catch
         {
-            // Preserve the original startup result. The coordinator will return a typed error.
+            // Preserve both the original startup result and session ownership. The coordinator
+            // performs another bounded cleanup, and SHUTDOWN can retry if that also fails.
+            Report(CoreDiagnosticStage.EngineCleanup, CoreDiagnosticCategory.EngineCleanupFailure);
         }
     }
+
+    private void Report(CoreDiagnosticStage stage, CoreDiagnosticCategory category) =>
+        CoreDiagnosticReporter.ReportSafely(_diagnostics, stage, category);
 
     private void PublishFailure(ProxyErrorCode code, string message)
     {

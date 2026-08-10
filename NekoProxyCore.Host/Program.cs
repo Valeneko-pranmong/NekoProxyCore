@@ -36,7 +36,10 @@ internal static class Program
                 var startAuthorizer = ProductionAuthorizationComposition.CreateStartAuthorizer(
                     ProductionPublicKeys.LoadBundled(), null, diagnostics);
                 var statusSink = new NullStatusSink();
-                var engine = new NetchProcessModeEngine(new NetchProcessModeSessionResolver(), statusSink);
+                var engine = new NetchProcessModeEngine(
+                    new NetchProcessModeSessionResolver(diagnostics),
+                    statusSink,
+                    diagnostics);
                 var controller = new ProcessModeController(new WindowsProcessResolver(), engine, diagnostics);
                 runtime = new HeadlessRuntimeCoordinator(
                     controller, startAuthorizer, statusSink, null, diagnostics);

@@ -112,7 +112,15 @@ public sealed class AuthorizationDiagnosticTests
                 new ProxyError(ProxyErrorCode.InvalidConfiguration, "password-marker")),
             null,
             diagnostics);
-        Assert.AreEqual(ProxyErrorCode.AuthorizationUnavailable, translated.ErrorCode);
+        Assert.AreEqual(ProxyErrorCode.ConfigurationMismatch, translated.ErrorCode);
+        var stillUnavailable = ControlResponse.FromResult(
+            ProxyResult.Failure(
+                ProxyStatusKind.Failed,
+                CorrelationId,
+                new ProxyError(ProxyErrorCode.Timeout, "password-marker")),
+            null,
+            diagnostics);
+        Assert.AreEqual(ProxyErrorCode.AuthorizationUnavailable, stillUnavailable.ErrorCode);
         var missingStatusError = ControlResponse.FromStatus(
             new ProxyStatusSnapshot(
                 ProxyStatusKind.Failed,
@@ -128,6 +136,9 @@ public sealed class AuthorizationDiagnosticTests
         StringAssert.Contains(
             output,
             "stage=PROCESS_PRECONDITION category=PROCESS_EXACT_RESOLVER_UNAVAILABLE");
+        StringAssert.Contains(
+            output,
+            "stage=CONTROL_RESPONSE category=RUNTIME_INVALID_CONFIGURATION_MAPPED_TO_CONFIGURATION_MISMATCH");
         StringAssert.Contains(
             output,
             "stage=CONTROL_RESPONSE category=CONTROL_ERROR_TRANSLATED_TO_AUTHORIZATION_UNAVAILABLE");
