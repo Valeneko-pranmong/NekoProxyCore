@@ -14,7 +14,13 @@ public static class ProductionAuthorizationComposition
 
     public static IProxyStartAuthorizer CreateStartAuthorizer(
         IReadOnlyDictionary<string, RSAParameters> publicKeys,
-        ITrustedUtcClock? clock = null)
+        ITrustedUtcClock? clock = null) =>
+        CreateStartAuthorizer(publicKeys, clock, NullCoreDiagnosticSink.Instance);
+
+    public static IProxyStartAuthorizer CreateStartAuthorizer(
+        IReadOnlyDictionary<string, RSAParameters> publicKeys,
+        ITrustedUtcClock? clock,
+        ICoreDiagnosticSink? diagnostics)
     {
         ArgumentNullException.ThrowIfNull(publicKeys);
         if (publicKeys.Count == 0)
@@ -40,8 +46,9 @@ public static class ProductionAuthorizationComposition
                 new ImmutableTrustedPublicKeyResolver(trustedKeys),
                 new S0Rc1CanonicalConfigurationSerializer(),
                 clock ?? SystemTrustedUtcClock.Instance,
-                new InMemoryPermitReplayStore());
-            return new ChallengePermitStartAuthorizer(verifier);
+                new InMemoryPermitReplayStore(),
+                diagnostics);
+            return new ChallengePermitStartAuthorizer(verifier, diagnostics);
         }
         catch
         {

@@ -29,30 +29,55 @@ public sealed class ControlResponse
     public ProxyErrorCode? ErrorCode { get; }
 
     public static ControlResponse FromResult(ProxyResult result, string? correlationId = null) =>
+        FromResult(result, correlationId, NullCoreDiagnosticSink.Instance);
+
+    internal static ControlResponse FromResult(
+        ProxyResult result,
+        string? correlationId,
+        ICoreDiagnosticSink diagnostics) =>
         new(
             "result",
             correlationId ?? result.CorrelationId,
             result.Status,
             result.Succeeded,
-            MapWireError(result.Error?.Code));
+            MapWireError(result.Error?.Code, diagnostics));
 
     public static ControlResponse FromStatus(ProxyStatusSnapshot status, string correlationId) =>
+        FromStatus(status, correlationId, NullCoreDiagnosticSink.Instance);
+
+    internal static ControlResponse FromStatus(
+        ProxyStatusSnapshot status,
+        string correlationId,
+        ICoreDiagnosticSink diagnostics) =>
         new(
             "status",
             correlationId,
             status.Status,
             status.Status != ProxyStatusKind.Failed,
             status.Status == ProxyStatusKind.Failed
-                ? MapWireError(status.Error?.Code) ?? ProxyErrorCode.AuthorizationUnavailable
+                ? MapFailedStatusError(status.Error?.Code, diagnostics)
                 : null);
 
     public static ControlResponse ShutdownSuccess(string correlationId) =>
         new("shutdownResponse", correlationId, ProxyStatusKind.Stopped, true, null);
 
     public static ControlResponse ShutdownFailure(ProxyResult result, string correlationId) =>
-        new("shutdownResponse", correlationId, result.Status, false, MapWireError(result.Error?.Code));
+        ShutdownFailure(result, correlationId, NullCoreDiagnosticSink.Instance);
 
-    private static ProxyErrorCode? MapWireError(ProxyErrorCode? code) => code switch
+    internal static ControlResponse ShutdownFailure(
+        ProxyResult result,
+        string correlationId,
+        ICoreDiagnosticSink diagnostics) =>
+        new(
+            "shutdownResponse",
+            correlationId,
+            result.Status,
+            false,
+            MapWireError(result.Error?.Code, diagnostics));
+
+    private static ProxyErrorCode? MapWireError(
+        ProxyErrorCode? code,
+        ICoreDiagnosticSink? diagnostics) => code switch
     {
         null => null,
         ProxyErrorCode.AuthorizationRequired or
@@ -72,8 +97,32 @@ public sealed class ControlResponse
         ProxyErrorCode.Cancelled or
         ProxyErrorCode.StartFailed or
         ProxyErrorCode.StopFailed => code,
-        _ => ProxyErrorCode.AuthorizationUnavailable
+        _ => TranslateUnavailable(diagnostics)
     };
+
+    private static ProxyErrorCode TranslateUnavailable(ICoreDiagnosticSink? diagnostics)
+    {
+        CoreDiagnosticReporter.ReportSafely(
+            diagnostics ?? NullCoreDiagnosticSink.Instance,
+            CoreDiagnosticStage.ControlResponse,
+            CoreDiagnosticCategory.ControlErrorTranslatedToAuthorizationUnavailable);
+        return ProxyErrorCode.AuthorizationUnavailable;
+    }
+
+    private static ProxyErrorCode MapFailedStatusError(
+        ProxyErrorCode? code,
+        ICoreDiagnosticSink? diagnostics)
+    {
+        var mapped = MapWireError(code, diagnostics);
+        if (mapped is { } errorCode)
+            return errorCode;
+
+        CoreDiagnosticReporter.ReportSafely(
+            diagnostics ?? NullCoreDiagnosticSink.Instance,
+            CoreDiagnosticStage.ControlResponse,
+            CoreDiagnosticCategory.ControlFailedStatusErrorMissing);
+        return ProxyErrorCode.AuthorizationUnavailable;
+    }
 
     internal static ControlResponse ProtocolInvalid(string correlationId = "invalid") =>
         new("result", correlationId, ProxyStatusKind.Failed, false, ProxyErrorCode.ProtocolInvalid);

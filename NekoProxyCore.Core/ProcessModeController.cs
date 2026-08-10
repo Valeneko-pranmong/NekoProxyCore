@@ -7,11 +7,21 @@ public sealed class ProcessModeController : IProxyModeController, IProcessExitWa
 {
     private readonly IProcessResolver _processResolver;
     private readonly IProcessModeEngine _engine;
+    private readonly ICoreDiagnosticSink _diagnostics;
 
     public ProcessModeController(IProcessResolver processResolver, IProcessModeEngine engine)
+        : this(processResolver, engine, null)
+    {
+    }
+
+    public ProcessModeController(
+        IProcessResolver processResolver,
+        IProcessModeEngine engine,
+        ICoreDiagnosticSink? diagnostics)
     {
         _processResolver = processResolver ?? throw new ArgumentNullException(nameof(processResolver));
         _engine = engine ?? throw new ArgumentNullException(nameof(engine));
+        _diagnostics = diagnostics ?? NullCoreDiagnosticSink.Instance;
     }
 
     public async Task VerifyAsync(ProxyConfiguration configuration, CancellationToken cancellationToken)
@@ -48,6 +58,7 @@ public sealed class ProcessModeController : IProxyModeController, IProcessExitWa
             return _processResolver.WaitForExitAsync(configuration.ProcessName, cancellationToken);
         if (_processResolver is not IExactProcessResolver exactResolver)
         {
+            ReportExactResolverUnavailable();
             throw new ProxyRuntimeException(
                 ProxyErrorCode.AuthorizationUnavailable,
                 "Exact target verification is unavailable.");
@@ -67,6 +78,7 @@ public sealed class ProcessModeController : IProxyModeController, IProcessExitWa
             return _processResolver.IsRunningAsync(configuration.ProcessName, cancellationToken);
         if (_processResolver is not IExactProcessResolver exactResolver)
         {
+            ReportExactResolverUnavailable();
             throw new ProxyRuntimeException(
                 ProxyErrorCode.AuthorizationUnavailable,
                 "Exact target verification is unavailable.");
@@ -77,4 +89,10 @@ public sealed class ProcessModeController : IProxyModeController, IProcessExitWa
             targetPid,
             cancellationToken);
     }
+
+    private void ReportExactResolverUnavailable() =>
+        CoreDiagnosticReporter.ReportSafely(
+            _diagnostics,
+            CoreDiagnosticStage.ProcessPrecondition,
+            CoreDiagnosticCategory.ProcessExactResolverUnavailable);
 }

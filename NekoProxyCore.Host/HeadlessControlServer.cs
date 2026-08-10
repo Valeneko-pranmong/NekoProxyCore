@@ -12,17 +12,20 @@ internal sealed class HeadlessControlServer
     private readonly IProxyRuntime _runtime;
     private readonly ICoreChallengeService _challenges;
     private readonly HostShutdownSignal _shutdown;
+    private readonly ICoreDiagnosticSink _diagnostics;
     private readonly string _pipeName;
 
     public HeadlessControlServer(
         IProxyRuntime runtime,
         ICoreChallengeService challenges,
         HostShutdownSignal shutdown,
-        string pipeName = PipeName)
+        string pipeName = PipeName,
+        ICoreDiagnosticSink? diagnostics = null)
     {
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _challenges = challenges ?? throw new ArgumentNullException(nameof(challenges));
         _shutdown = shutdown ?? throw new ArgumentNullException(nameof(shutdown));
+        _diagnostics = diagnostics ?? NullCoreDiagnosticSink.Instance;
         _pipeName = string.IsNullOrWhiteSpace(pipeName)
             ? throw new ArgumentException("A pipe name is required.", nameof(pipeName))
             : pipeName;
@@ -91,16 +94,21 @@ internal sealed class HeadlessControlServer
                 if (!request.TryCreateStartRequest(out var startRequest, out var error))
                     return Response(ControlProtocol.Serialize(error!));
                 return Response(ControlProtocol.Serialize(
-                    ControlResponse.FromResult(await _runtime.StartAsync(startRequest!).ConfigureAwait(false)),
+                    ControlResponse.FromResult(
+                        await _runtime.StartAsync(startRequest!).ConfigureAwait(false),
+                        null,
+                        _diagnostics),
                     "startResponse"));
             case ControlCommand.Status:
                 return Response(ControlProtocol.Serialize(ControlResponse.FromStatus(
                     await _runtime.GetStatusAsync(cancellationToken).ConfigureAwait(false),
-                    request.CorrelationId), "statusResponse"));
+                    request.CorrelationId,
+                    _diagnostics), "statusResponse"));
             case ControlCommand.Stop:
                 return Response(ControlProtocol.Serialize(ControlResponse.FromResult(
                     await _runtime.StopAsync(cancellationToken).ConfigureAwait(false),
-                    request.CorrelationId), "stopResponse"));
+                    request.CorrelationId,
+                    _diagnostics), "stopResponse"));
             case ControlCommand.Shutdown:
                 var stopped = await _runtime.StopAsync(cancellationToken).ConfigureAwait(false);
                 return stopped.Succeeded && stopped.Status == ProxyStatusKind.Stopped
@@ -108,7 +116,7 @@ internal sealed class HeadlessControlServer
                         ControlProtocol.Serialize(ControlResponse.ShutdownSuccess(request.CorrelationId)),
                         true)
                     : Response(ControlProtocol.Serialize(
-                        ControlResponse.ShutdownFailure(stopped, request.CorrelationId)));
+                        ControlResponse.ShutdownFailure(stopped, request.CorrelationId, _diagnostics)));
             default:
                 throw new InvalidOperationException("Unsupported control command.");
         }

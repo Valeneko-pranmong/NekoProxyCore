@@ -30,15 +30,18 @@ internal static class Program
             HeadlessRuntimeCoordinator? runtime = null;
             try
             {
+                var diagnostics = HostDiagnosticSink.Create();
                 // Missing or invalid bundled trust material terminates the host before runtime
                 // initialization; there is no authorization fallback in the production entry point.
                 var startAuthorizer = ProductionAuthorizationComposition.CreateStartAuthorizer(
-                    ProductionPublicKeys.LoadBundled());
+                    ProductionPublicKeys.LoadBundled(), null, diagnostics);
                 var statusSink = new NullStatusSink();
                 var engine = new NetchProcessModeEngine(new NetchProcessModeSessionResolver(), statusSink);
-                var controller = new ProcessModeController(new WindowsProcessResolver(), engine);
-                runtime = new HeadlessRuntimeCoordinator(controller, startAuthorizer, statusSink);
-                var server = new HeadlessControlServer(runtime, new CoreChallengeService(), shutdown);
+                var controller = new ProcessModeController(new WindowsProcessResolver(), engine, diagnostics);
+                runtime = new HeadlessRuntimeCoordinator(
+                    controller, startAuthorizer, statusSink, null, diagnostics);
+                var server = new HeadlessControlServer(
+                    runtime, new CoreChallengeService(), shutdown, diagnostics: diagnostics);
 
                 await NetchRuntimeBootstrap.InitializeAsync(AppContext.BaseDirectory).ConfigureAwait(false);
                 await server.RunAsync(shutdown.Token).ConfigureAwait(false);

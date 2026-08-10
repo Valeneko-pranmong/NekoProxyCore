@@ -92,6 +92,7 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
     private readonly ICanonicalConfigurationSerializer _configurationSerializer;
     private readonly ITrustedUtcClock _clock;
     private readonly IPermitReplayStore _replayStore;
+    private readonly ICoreDiagnosticSink _diagnostics;
     private readonly object _clockGate = new();
     private DateTimeOffset? _lastObservedUtc;
 
@@ -100,11 +101,22 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
         ICanonicalConfigurationSerializer configurationSerializer,
         ITrustedUtcClock clock,
         IPermitReplayStore replayStore)
+        : this(keyResolver, configurationSerializer, clock, replayStore, null)
+    {
+    }
+
+    public StrictLaunchPermitVerifier(
+        ITrustedPublicKeyResolver keyResolver,
+        ICanonicalConfigurationSerializer configurationSerializer,
+        ITrustedUtcClock clock,
+        IPermitReplayStore replayStore,
+        ICoreDiagnosticSink? diagnostics)
     {
         _keyResolver = keyResolver ?? throw new ArgumentNullException(nameof(keyResolver));
         _configurationSerializer = configurationSerializer ?? throw new ArgumentNullException(nameof(configurationSerializer));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _replayStore = replayStore ?? throw new ArgumentNullException(nameof(replayStore));
+        _diagnostics = diagnostics ?? NullCoreDiagnosticSink.Instance;
     }
 
     public Task<ProxyError?> VerifyAsync(
@@ -118,9 +130,11 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
         ArgumentNullException.ThrowIfNull(challenge);
         cancellationToken.ThrowIfCancellationRequested();
 
+        var currentStage = CoreDiagnosticStage.PermitParse;
         try
         {
-            return Task.FromResult(Verify(permit, configuration, challenge, cancellationToken));
+            return Task.FromResult(Verify(
+                permit, configuration, challenge, cancellationToken, ref currentStage));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -128,6 +142,7 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
         }
         catch
         {
+            Report(currentStage, CoreDiagnosticCategory.AuthVerifierUnexpectedException);
             return Task.FromResult<ProxyError?>(Error(
                 ProxyErrorCode.AuthorizationUnavailable, "Online authorization is unavailable."));
         }
@@ -137,7 +152,8 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
         SensitivePermit permit,
         ProxyConfiguration configuration,
         string challenge,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ref CoreDiagnosticStage currentStage)
     {
         var compact = permit.Value;
         if (compact.Length is 0 or > MaximumPermitLength || compact.Any(character => character > 0x7f))
@@ -156,8 +172,10 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
         {
             return Invalid();
         }
+        ReportCompleted(CoreDiagnosticStage.PermitParse);
 
         cancellationToken.ThrowIfCancellationRequested();
+        currentStage = CoreDiagnosticStage.KeyResolve;
         ITrustedPublicKey? trustedKey;
         try
         {
@@ -166,12 +184,18 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
         }
         catch
         {
+            Report(currentStage, CoreDiagnosticCategory.AuthKeyResolveException);
             return Error(ProxyErrorCode.AuthorizationUnavailable, "Online authorization is unavailable.");
         }
 
         if (trustedKey is not RsaTrustedPublicKey rsaKey)
+        {
+            Report(currentStage, CoreDiagnosticCategory.AuthKeyTypeUnavailable);
             return Error(ProxyErrorCode.AuthorizationUnavailable, "Online authorization is unavailable.");
+        }
+        ReportCompleted(currentStage);
 
+        currentStage = CoreDiagnosticStage.SignatureVerify;
         var signingInput = Encoding.ASCII.GetBytes(segments[0] + "." + segments[1]);
         bool signatureValid;
         try
@@ -183,7 +207,12 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
             return Invalid();
         }
 
-        if (!signatureValid ||
+        if (!signatureValid)
+            return Invalid();
+        ReportCompleted(currentStage);
+
+        currentStage = CoreDiagnosticStage.ClaimsValidate;
+        if (
             !HasExactString(claims, "iss", "neko-backend") ||
             !HasExactString(claims, "aud", "neko-proxy-core") ||
             !HasExactString(claims, "product", "neko-family-proxy") ||
@@ -213,18 +242,26 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
         {
             return Invalid();
         }
+        ReportCompleted(currentStage);
 
+        currentStage = CoreDiagnosticStage.ClockValidate;
         long now;
         try
         {
             lock (_clockGate)
             {
                 if (!_clock.IsTrusted)
+                {
+                    Report(currentStage, CoreDiagnosticCategory.AuthClockUntrusted);
                     return Error(ProxyErrorCode.AuthorizationUnavailable, "Online authorization is unavailable.");
+                }
 
                 var observedUtc = _clock.UtcNow;
                 if (_lastObservedUtc is { } previousUtc && observedUtc < previousUtc)
+                {
+                    Report(currentStage, CoreDiagnosticCategory.AuthClockRollback);
                     return Error(ProxyErrorCode.AuthorizationUnavailable, "Online authorization is unavailable.");
+                }
 
                 _lastObservedUtc = observedUtc;
                 now = observedUtc.ToUnixTimeSeconds();
@@ -232,14 +269,17 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
         }
         catch
         {
+            Report(currentStage, CoreDiagnosticCategory.AuthClockException);
             return Error(ProxyErrorCode.AuthorizationUnavailable, "Online authorization is unavailable.");
         }
+        ReportCompleted(currentStage);
 
         if (issuedAt > now + ClockSkewSeconds ||
             notBefore > now + ClockSkewSeconds ||
             expiresAt <= now - ClockSkewSeconds)
             return Error(ProxyErrorCode.AuthorizationExpired, "Online authorization expired.");
 
+        currentStage = CoreDiagnosticStage.ConfigurationDigestValidate;
         byte[] canonicalConfiguration;
         try
         {
@@ -256,15 +296,21 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
         {
             return Error(ProxyErrorCode.ConfigurationMismatch, "Proxy configuration does not match authorization.");
         }
+        ReportCompleted(currentStage);
 
+        currentStage = CoreDiagnosticStage.TargetChallengeBind;
         if (configuration.TargetPid != targetPid ||
             !FixedTimeAsciiEquals(permitChallenge, challenge))
         {
             return Invalid();
         }
+        ReportCompleted(currentStage);
 
         cancellationToken.ThrowIfCancellationRequested();
-        return _replayStore.TryConsume(permitId, expiresAt)
+        currentStage = CoreDiagnosticStage.JtiConsume;
+        var consumed = _replayStore.TryConsume(permitId, expiresAt);
+        ReportCompleted(currentStage);
+        return consumed
             ? null
             : Error(ProxyErrorCode.AuthorizationReplay, "Online authorization was already used.");
     }
@@ -434,6 +480,12 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
 
     private static ProxyError Invalid() =>
         Error(ProxyErrorCode.AuthorizationInvalid, "Online authorization is invalid.");
+
+    private void ReportCompleted(CoreDiagnosticStage stage) =>
+        Report(stage, CoreDiagnosticCategory.StageCompleted);
+
+    private void Report(CoreDiagnosticStage stage, CoreDiagnosticCategory category) =>
+        CoreDiagnosticReporter.ReportSafely(_diagnostics, stage, category);
 
     private static ProxyError Error(ProxyErrorCode code, string safeMessage) => new(code, safeMessage);
 }

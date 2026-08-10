@@ -6,6 +6,7 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
     private readonly IProxyStartAuthorizer _startAuthorizer;
     private readonly IProxyStatusSink _statusSink;
     private readonly Func<DateTimeOffset> _clock;
+    private readonly ICoreDiagnosticSink _diagnostics;
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private ProxyStatusSnapshot _snapshot;
     private ProxyConfiguration? _activeConfiguration;
@@ -16,7 +17,12 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
         IProxyModeController modeController,
         IProxyStatusSink? statusSink = null,
         Func<DateTimeOffset>? clock = null)
-        : this(modeController, new AuthorizationRequiredStartAuthorizer(), statusSink, clock)
+        : this(
+            modeController,
+            new AuthorizationRequiredStartAuthorizer(),
+            statusSink,
+            clock,
+            NullCoreDiagnosticSink.Instance)
     {
     }
 
@@ -25,11 +31,22 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
         IProxyStartAuthorizer startAuthorizer,
         IProxyStatusSink? statusSink = null,
         Func<DateTimeOffset>? clock = null)
+        : this(modeController, startAuthorizer, statusSink, clock, NullCoreDiagnosticSink.Instance)
+    {
+    }
+
+    public HeadlessRuntimeCoordinator(
+        IProxyModeController modeController,
+        IProxyStartAuthorizer startAuthorizer,
+        IProxyStatusSink? statusSink,
+        Func<DateTimeOffset>? clock,
+        ICoreDiagnosticSink? diagnostics)
     {
         _modeController = modeController ?? throw new ArgumentNullException(nameof(modeController));
         _startAuthorizer = startAuthorizer ?? throw new ArgumentNullException(nameof(startAuthorizer));
         _statusSink = statusSink ?? NullProxyStatusSink.Instance;
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
+        _diagnostics = diagnostics ?? NullCoreDiagnosticSink.Instance;
         _snapshot = new ProxyStatusSnapshot(ProxyStatusKind.Stopped, string.Empty, _clock());
     }
 
@@ -70,6 +87,9 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
                 }
                 catch
                 {
+                    Report(
+                        CoreDiagnosticStage.Authorization,
+                        CoreDiagnosticCategory.RuntimeAuthorizationUnavailable);
                     return Fail(
                         request.CorrelationId,
                         ProxyErrorCode.AuthorizationUnavailable,
@@ -81,6 +101,7 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
 
                 if (_modeController is IAuthorizedStartPrecondition precondition)
                     await precondition.VerifyAsync(request.Configuration, request.CancellationToken).ConfigureAwait(false);
+                Report(CoreDiagnosticStage.ProcessPrecondition, CoreDiagnosticCategory.StageCompleted);
 
                 Publish(ProxyStatusKind.Starting, request.CorrelationId);
                 _activeConfiguration = request.Configuration;
@@ -130,6 +151,7 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
                 _activeConfiguration = request.Configuration;
                 Publish(ProxyStatusKind.Running, request.CorrelationId);
                 StartProcessExitMonitoring(request.Configuration, request.CorrelationId);
+                Report(CoreDiagnosticStage.RuntimeStart, CoreDiagnosticCategory.StageCompleted);
                 return ProxyResult.Success(ProxyStatusKind.Running, request.CorrelationId);
             }
             catch (OperationCanceledException) when (request.CancellationToken.IsCancellationRequested)
@@ -240,6 +262,9 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
         Publish(ProxyStatusKind.Failed, correlationId, error);
         return ProxyResult.Failure(ProxyStatusKind.Failed, correlationId, error);
     }
+
+    private void Report(CoreDiagnosticStage stage, CoreDiagnosticCategory category) =>
+        CoreDiagnosticReporter.ReportSafely(_diagnostics, stage, category);
 
     private static string GetAllowListedRuntimeMessage(ProxyErrorCode code) => code switch
     {
