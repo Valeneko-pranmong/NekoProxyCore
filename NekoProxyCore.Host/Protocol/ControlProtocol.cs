@@ -13,7 +13,11 @@ public static class ControlProtocol
     public const int MaxFrameBytes = 8 * 1024;
     public const int MaxPermitCharacters = 4096;
 
-    private static readonly Regex CorrelationIdPattern = new(
+    private static readonly Regex ExistingCorrelationIdPattern = new(
+        "^[0-9a-f]{32}$",
+        RegexOptions.CultureInvariant);
+
+    private static readonly Regex AbsoluteCorrelationIdPattern = new(
         "^[0-9a-f]{32}\\z",
         RegexOptions.CultureInvariant);
 
@@ -54,8 +58,8 @@ public static class ControlProtocol
             if (root.ValueKind != JsonValueKind.Object || HasDuplicateProperties(root) ||
                 !TryGetString(root, "type", out var commandText) ||
                 !TryGetString(root, "correlationId", out var correlationId) ||
-                !CorrelationIdPattern.IsMatch(correlationId) ||
-                !TryParseCommand(commandText, out var command))
+                !TryParseCommand(commandText, out var command) ||
+                !IsCorrelationIdValid(command, correlationId))
             {
                 return Fail(out error);
             }
@@ -155,7 +159,7 @@ public static class ControlProtocol
     public static string SerializeChallenge(string correlationId, CoreChallenge challenge)
     {
         ArgumentNullException.ThrowIfNull(challenge);
-        if (!CorrelationIdPattern.IsMatch(correlationId) || challenge.Value.Length != 43)
+        if (!ExistingCorrelationIdPattern.IsMatch(correlationId) || challenge.Value.Length != 43)
             throw new ArgumentException("Challenge response is invalid.");
 
         return JsonSerializer.Serialize(new WireChallengeResponse(
@@ -169,7 +173,7 @@ public static class ControlProtocol
         ProcessModeConfigurationCatalogResult result)
     {
         ArgumentNullException.ThrowIfNull(result);
-        if (!CorrelationIdPattern.IsMatch(correlationId))
+        if (!AbsoluteCorrelationIdPattern.IsMatch(correlationId))
             throw new ArgumentException("Catalog response correlation ID is invalid.", nameof(correlationId));
 
         if (!result.Succeeded)
@@ -223,7 +227,7 @@ public static class ControlProtocol
         bool succeeded)
     {
         ArgumentNullException.ThrowIfNull(validation);
-        if (!CorrelationIdPattern.IsMatch(correlationId) ||
+        if (!AbsoluteCorrelationIdPattern.IsMatch(correlationId) ||
             !ProcessModeConfigurationReference.TryParseProfile(validation.ProfileReference, out _) ||
             !ProcessModeConfigurationReference.TryParseServer(validation.ServerReference, out _) ||
             validation.ProcessModeMatchCount is < 0 or > 2 ||
@@ -274,6 +278,11 @@ public static class ControlProtocol
                 return false;
         }
     }
+
+    private static bool IsCorrelationIdValid(ControlCommand command, string correlationId) =>
+        command is ControlCommand.RuntimeConfigCatalog or ControlCommand.RuntimeConfigValidate
+            ? AbsoluteCorrelationIdPattern.IsMatch(correlationId)
+            : ExistingCorrelationIdPattern.IsMatch(correlationId);
 
     private static bool HasDuplicateProperties(JsonElement root)
     {
@@ -342,7 +351,7 @@ public static class ControlProtocol
     private static bool Fail(out ControlResponse? error, string correlationId = "invalid")
     {
         error = ControlResponse.ProtocolInvalid(
-            CorrelationIdPattern.IsMatch(correlationId) ? correlationId : "invalid");
+            ExistingCorrelationIdPattern.IsMatch(correlationId) ? correlationId : "invalid");
         return false;
     }
 

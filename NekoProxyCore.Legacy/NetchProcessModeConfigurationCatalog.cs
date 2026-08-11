@@ -1,7 +1,9 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using NekoProxyCore.Core;
 using Netch;
+using Netch.JsonConverter;
 using Netch.Models;
 using Netch.Models.Modes;
 using Netch.Models.Modes.ProcessMode;
@@ -17,8 +19,7 @@ public sealed class NetchProcessModeConfigurationCatalog : IProcessModeConfigura
         try
         {
             _snapshot = new ProcessModeConfigurationSnapshot(
-                Global.Settings.Profiles,
-                Global.Settings.Server,
+                Global.Settings,
                 Global.Modes);
         }
         catch
@@ -99,7 +100,7 @@ public sealed class NetchProcessModeConfigurationCatalog : IProcessModeConfigura
     internal ProcessModeConfigurationResolution Resolve(
         string profileReference,
         string serverReference) =>
-        _snapshot?.Evaluate(profileReference, serverReference) ??
+        _snapshot?.Resolve(profileReference, serverReference) ??
         ProcessModeConfigurationResolution.Invalid(
             ProcessModeConfigurationResolutionFailure.SnapshotUnavailable);
 }
@@ -109,22 +110,24 @@ internal sealed class ProcessModeConfigurationSnapshot
     private readonly ProfileSnapshot[] _profiles;
     private readonly ServerSnapshot[] _servers;
     private readonly RedirectorSnapshot[] _modes;
+    private readonly Setting _runtimeSettings;
 
     public ProcessModeConfigurationSnapshot(
-        IEnumerable<Profile> profiles,
-        IEnumerable<Server> servers,
+        Setting settings,
         IEnumerable<Mode> modes)
     {
-        _profiles = profiles?
+        ArgumentNullException.ThrowIfNull(settings);
+        _runtimeSettings = CloneSettings(settings);
+        _profiles = settings.Profiles
             .Select(profile => new ProfileSnapshot(
                 profile.Index,
                 profile.ServerRemark,
                 profile.ModeRemark))
-            .ToArray() ?? throw new ArgumentNullException(nameof(profiles));
-        _servers = servers?
+            .ToArray();
+        _servers = settings.Server
             .Select(CloneServer)
             .Select(server => new ServerSnapshot(server, server.Remark))
-            .ToArray() ?? throw new ArgumentNullException(nameof(servers));
+            .ToArray();
         _modes = modes?
             .OfType<Redirector>()
             .Select(CloneRedirector)
@@ -169,6 +172,7 @@ internal sealed class ProcessModeConfigurationSnapshot
                 false,
                 ProcessModeConfigurationResolutionFailure.ServerNotFound,
                 null,
+                null,
                 null);
         }
 
@@ -186,6 +190,7 @@ internal sealed class ProcessModeConfigurationSnapshot
                 false,
                 ProcessModeConfigurationResolutionFailure.ProfileServerMismatch,
                 null,
+                null,
                 null);
         }
 
@@ -199,6 +204,7 @@ internal sealed class ProcessModeConfigurationSnapshot
                     ? ProcessModeConfigurationResolutionFailure.ModeNotFound
                     : ProcessModeConfigurationResolutionFailure.ModeAmbiguous,
                 null,
+                null,
                 null);
         }
 
@@ -208,7 +214,24 @@ internal sealed class ProcessModeConfigurationSnapshot
             true,
             ProcessModeConfigurationResolutionFailure.None,
             server.Server,
-            matchingModes[0].Mode);
+            matchingModes[0].Mode,
+            null);
+    }
+
+    public ProcessModeConfigurationResolution Resolve(
+        string profileReference,
+        string serverReference)
+    {
+        var resolution = Evaluate(profileReference, serverReference);
+        if (!resolution.Valid)
+            return resolution;
+
+        return resolution with
+        {
+            Server = CloneServer(resolution.Server!),
+            Mode = CloneRedirector(resolution.Mode!),
+            RuntimeSettings = CloneSettings(_runtimeSettings)
+        };
     }
 
     private sealed record ProfileSnapshot(
@@ -237,6 +260,17 @@ internal sealed class ProcessModeConfigurationSnapshot
             JsonSerializer.Serialize(mode, Global.NewCustomJsonSerializerOptions()),
             Global.NewCustomJsonSerializerOptions()) ??
         throw new InvalidOperationException("The runtime mode snapshot could not be created.");
+
+    private static Setting CloneSettings(Setting settings)
+    {
+        var options = Global.NewCustomJsonSerializerOptions();
+        options.Converters.Add(new ServerConverterWithTypeDiscriminator());
+        options.Converters.Add(new JsonStringEnumConverter());
+        return JsonSerializer.Deserialize<Setting>(
+                   JsonSerializer.Serialize(settings, options),
+                   options) ??
+               throw new InvalidOperationException("The runtime settings snapshot could not be created.");
+    }
 }
 
 internal sealed record ProcessModeConfigurationResolution(
@@ -245,11 +279,12 @@ internal sealed record ProcessModeConfigurationResolution(
     bool Valid,
     ProcessModeConfigurationResolutionFailure Failure,
     Server? Server,
-    Redirector? Mode)
+    Redirector? Mode,
+    Setting? RuntimeSettings)
 {
     public static ProcessModeConfigurationResolution Invalid(
         ProcessModeConfigurationResolutionFailure failure) =>
-        new(false, 0, false, failure, null, null);
+        new(false, 0, false, failure, null, null, null);
 }
 
 internal enum ProcessModeConfigurationResolutionFailure

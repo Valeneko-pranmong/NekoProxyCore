@@ -120,18 +120,12 @@ internal sealed class HeadlessControlServer
                         _diagnostics),
                     "startResponse"));
             case ControlCommand.RuntimeConfigCatalog:
-                return Response(ControlProtocol.SerializeRuntimeConfigCatalog(
-                    request.CorrelationId,
-                    GetCatalogSafely()));
+                return Response(SerializeCatalogSafely(request.CorrelationId));
             case ControlCommand.RuntimeConfigValidate:
-                var validation = ValidateSafely(
-                    request.ProfileReference!,
-                    request.ServerReference!,
-                    out var validationSucceeded);
-                return Response(ControlProtocol.SerializeRuntimeConfigValidation(
+                return Response(SerializeValidationSafely(
                     request.CorrelationId,
-                    validation,
-                    validationSucceeded));
+                    request.ProfileReference!,
+                    request.ServerReference!));
             case ControlCommand.Status:
                 return Response(ControlProtocol.Serialize(ControlResponse.FromStatus(
                     await _runtime.GetStatusAsync(cancellationToken).ConfigureAwait(false),
@@ -157,6 +151,53 @@ internal sealed class HeadlessControlServer
 
     private static DispatchResult Response(string response) => new(response, false);
 
+    private string SerializeCatalogSafely(string correlationId)
+    {
+        try
+        {
+            return ControlProtocol.SerializeRuntimeConfigCatalog(
+                correlationId,
+                GetCatalogSafely());
+        }
+        catch
+        {
+            return ControlProtocol.SerializeRuntimeConfigCatalog(
+                correlationId,
+                ProcessModeConfigurationCatalogResult.Failure(
+                    ProcessModeConfigurationCatalogFailureReason.CatalogUnavailable));
+        }
+    }
+
+    private string SerializeValidationSafely(
+        string correlationId,
+        string profileReference,
+        string serverReference)
+    {
+        try
+        {
+            var validation = ValidateSafely(
+                profileReference,
+                serverReference,
+                out var succeeded);
+            return ControlProtocol.SerializeRuntimeConfigValidation(
+                correlationId,
+                validation,
+                succeeded);
+        }
+        catch
+        {
+            return ControlProtocol.SerializeRuntimeConfigValidation(
+                correlationId,
+                new ProcessModeConfigurationValidation(
+                    profileReference,
+                    serverReference,
+                    false,
+                    0,
+                    false),
+                succeeded: false);
+        }
+    }
+
     private ProcessModeConfigurationCatalogResult GetCatalogSafely()
     {
         try
@@ -178,6 +219,19 @@ internal sealed class HeadlessControlServer
         try
         {
             var validation = _configurationCatalog.Validate(profileReference, serverReference);
+            if (!string.Equals(
+                    validation.ProfileReference,
+                    profileReference,
+                    StringComparison.Ordinal) ||
+                !string.Equals(
+                    validation.ServerReference,
+                    serverReference,
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "Runtime configuration validation did not preserve the requested references.");
+            }
+
             succeeded = true;
             return validation;
         }

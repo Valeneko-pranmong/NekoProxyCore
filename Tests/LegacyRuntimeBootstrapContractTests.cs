@@ -46,6 +46,24 @@ public sealed class LegacyRuntimeBootstrapContractTests
         Assert.IsFalse(source.Contains("ModeHelper.LoadMode", StringComparison.Ordinal));
     }
 
+    [TestMethod]
+    public void SessionRestoresFrozenRuntimeSettingsAtLegacyStartBoundary()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var source = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "NekoProxyCore.Legacy",
+            "NetchProcessModeSessionResolver.cs"));
+
+        var restoreIndex = source.IndexOf("Global.Settings = _runtimeSettings", StringComparison.Ordinal);
+        var startIndex = source.IndexOf("MainController.StartAsync(", restoreIndex, StringComparison.Ordinal);
+        var releaseIndex = source.IndexOf("Global.Settings = _liveSettings", startIndex, StringComparison.Ordinal);
+
+        Assert.IsTrue(restoreIndex >= 0, "The frozen runtime settings are not restored at the legacy boundary.");
+        Assert.IsTrue(startIndex > restoreIndex, "Legacy runtime start does not consume the restored settings snapshot.");
+        Assert.IsTrue(releaseIndex > startIndex, "The legacy boundary does not release the frozen global settings after stop.");
+    }
+
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

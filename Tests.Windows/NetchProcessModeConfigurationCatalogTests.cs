@@ -170,6 +170,29 @@ public sealed class NetchProcessModeConfigurationCatalogTests
     }
 
     [TestMethod]
+    public void CatalogAtExactLimitSucceedsAsOneCompleteBoundedWireResponse()
+    {
+        AddServer("SHARED_SERVER");
+        AddMode("SHARED_MODE");
+        for (var index = 0; index < ProcessModeConfigurationCatalogContract.MaximumCandidates; index++)
+            AddProfile(index, "SHARED_SERVER", "SHARED_MODE");
+
+        var result = new NetchProcessModeConfigurationCatalog().GetCatalog();
+        var json = ControlProtocol.SerializeRuntimeConfigCatalog(
+            "0123456789abcdef0123456789abcdef",
+            result);
+
+        Assert.IsTrue(result.Succeeded);
+        Assert.IsNull(result.FailureReason);
+        Assert.AreEqual(ProcessModeConfigurationCatalogContract.MaximumCandidates, result.Candidates.Count);
+        Assert.IsTrue(System.Text.Encoding.UTF8.GetByteCount(json + "\n") <= ControlProtocol.MaxFrameBytes);
+        using var document = System.Text.Json.JsonDocument.Parse(json);
+        Assert.AreEqual(
+            ProcessModeConfigurationCatalogContract.MaximumCandidates,
+            document.RootElement.GetProperty("candidates").GetArrayLength());
+    }
+
+    [TestMethod]
     public void SnapshotFailureMakesCatalogUnavailableAndValidationFailClosed()
     {
         Global.Settings.Server.Add(new UnserializableServer());
@@ -230,6 +253,13 @@ public sealed class NetchProcessModeConfigurationCatalogTests
         };
         Global.Settings.Server.Add(server);
         Global.Settings.Profiles.Add(profile);
+        Global.Settings.Redirector.DNSHost = "203.0.113.10:53";
+        Global.Settings.Redirector.FilterTCP = true;
+        Global.Settings.Socks5LocalPort = 38123;
+        Global.Settings.LocalAddress = "127.0.0.7";
+        Global.Settings.STUN_Server = "frozen-stun.example.invalid";
+        Global.Settings.V2RayConfig.AllowInsecure = false;
+        Global.Settings.V2RayConfig.KcpConfig.mtu = 1234;
         Global.Modes.Add(mode);
         var catalog = new NetchProcessModeConfigurationCatalog();
         var resolver = new NetchProcessModeSessionResolver(catalog);
@@ -238,6 +268,13 @@ public sealed class NetchProcessModeConfigurationCatalogTests
         server.Hostname = "mutated.example.invalid";
         mode.Remark["en"] = "MUTATED_MODE";
         mode.FilterTCP = false;
+        Global.Settings.Redirector.DNSHost = "198.51.100.20:53";
+        Global.Settings.Redirector.FilterTCP = false;
+        Global.Settings.Socks5LocalPort = 48123;
+        Global.Settings.LocalAddress = "0.0.0.0";
+        Global.Settings.STUN_Server = "mutated-stun.example.invalid";
+        Global.Settings.V2RayConfig.AllowInsecure = true;
+        Global.Settings.V2RayConfig.KcpConfig.mtu = 4321;
 
         var validation = catalog.Validate("profile-0", "server-0");
         var session = await resolver.ResolveAsync(
@@ -257,6 +294,34 @@ public sealed class NetchProcessModeConfigurationCatalogTests
         Assert.AreNotSame(mode, frozenMode);
         Assert.AreEqual("frozen.example.invalid", frozenServer.Hostname);
         Assert.AreEqual(true, frozenMode.FilterTCP);
+
+        var frozenRuntimeSettings = session.GetType()
+            .GetField("_runtimeSettings", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .GetValue(session)!;
+        var frozenRedirector = frozenRuntimeSettings.GetType().GetProperty("Redirector")!
+            .GetValue(frozenRuntimeSettings)!;
+        Assert.AreEqual(
+            "203.0.113.10:53",
+            frozenRedirector.GetType().GetProperty("DNSHost")!.GetValue(frozenRedirector));
+        Assert.AreEqual(
+            38123,
+            Convert.ToInt32(frozenRuntimeSettings.GetType().GetProperty("Socks5LocalPort")!
+                .GetValue(frozenRuntimeSettings)));
+        Assert.AreEqual(
+            "127.0.0.7",
+            frozenRuntimeSettings.GetType().GetProperty("LocalAddress")!
+                .GetValue(frozenRuntimeSettings));
+        Assert.AreEqual(
+            "frozen-stun.example.invalid",
+            frozenRuntimeSettings.GetType().GetProperty("STUN_Server")!
+                .GetValue(frozenRuntimeSettings));
+        var frozenV2Ray = frozenRuntimeSettings.GetType().GetProperty("V2RayConfig")!
+            .GetValue(frozenRuntimeSettings)!;
+        Assert.AreEqual(false, frozenV2Ray.GetType().GetProperty("AllowInsecure")!.GetValue(frozenV2Ray));
+        var frozenKcp = frozenV2Ray.GetType().GetProperty("KcpConfig")!.GetValue(frozenV2Ray)!;
+        Assert.AreEqual(
+            1234,
+            frozenKcp.GetType().GetProperty("mtu")!.GetValue(frozenKcp));
     }
 
     [TestMethod]
@@ -300,6 +365,7 @@ public sealed class NetchProcessModeConfigurationCatalogTests
         foreach (var marker in new[]
                  {
                      "SECRET_HOST.example.invalid",
+                     "203.0.113.77",
                      "48137",
                      "SECRET_USERNAME",
                      "SECRET_PASSWORD",
@@ -379,7 +445,7 @@ public sealed class NetchProcessModeConfigurationCatalogTests
             Username = "SECRET_USERNAME",
             Password = "SECRET_PASSWORD",
             Group = "SERVER_JSON_SECRET PERMIT_SECRET JWT_SECRET CHALLENGE_SECRET CLAIMS_SECRET PRIVATE_KEY_SECRET",
-            RemoteHostname = "C:\\SECRET_CONFIGURATION_PATH"
+            RemoteHostname = "203.0.113.77 C:\\SECRET_CONFIGURATION_PATH"
         });
 
     private static void AddMode(string remark) =>

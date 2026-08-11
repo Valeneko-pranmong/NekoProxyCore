@@ -1,4 +1,5 @@
 using NekoProxyCore.Core;
+using Netch;
 using Netch.Controllers;
 using Netch.Models;
 using Netch.Models.Modes.ProcessMode;
@@ -49,6 +50,7 @@ public sealed class NetchProcessModeSessionResolver : ILegacyProcessModeSessionR
         ILegacyProcessModeSession session = new NetchProcessModeSession(
             resolution.Server!,
             resolution.Mode!,
+            resolution.RuntimeSettings!,
             statusSink);
         Report(CoreDiagnosticCategory.StageCompleted);
         return Task.FromResult(session);
@@ -92,19 +94,45 @@ public sealed class NetchProcessModeSessionResolver : ILegacyProcessModeSessionR
     {
         private readonly Server _server;
         private readonly Redirector _mode;
+        private readonly Setting _runtimeSettings;
+        private readonly Setting _liveSettings;
         private readonly IProxyStatusSink _statusSink;
 
-        public NetchProcessModeSession(Server server, Redirector mode, IProxyStatusSink statusSink)
+        public NetchProcessModeSession(
+            Server server,
+            Redirector mode,
+            Setting runtimeSettings,
+            IProxyStatusSink statusSink)
         {
             _server = server;
             _mode = mode;
+            _runtimeSettings = runtimeSettings;
+            _liveSettings = Global.Settings;
             _statusSink = statusSink;
         }
 
-        public Task StartAsync(CancellationToken cancellationToken) =>
-            MainController.StartAsync(_server, _mode, _statusSink, openLogOnUnhandledException: false).WaitAsync(cancellationToken);
+        public Task StartAsync(CancellationToken cancellationToken)
+        {
+            // Restore the complete process-lifetime execution snapshot immediately before
+            // entering legacy runtime code that still reads Global.Settings internally.
+            Global.Settings = _runtimeSettings;
+            return MainController.StartAsync(
+                _server,
+                _mode,
+                _statusSink,
+                openLogOnUnhandledException: false).WaitAsync(cancellationToken);
+        }
 
-        public Task StopAsync(CancellationToken cancellationToken) =>
-            MainController.StopAsync().WaitAsync(cancellationToken);
+        public async Task StopAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                await MainController.StopAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                Global.Settings = _liveSettings;
+            }
+        }
     }
 }

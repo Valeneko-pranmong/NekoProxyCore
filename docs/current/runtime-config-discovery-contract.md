@@ -4,7 +4,7 @@ This document defines the local, read-only Launcher handoff added in Phase 2.5. 
 
 ## Authoritative runtime resolution
 
-`NetchRuntimeBootstrap.InitializeAsync(AppContext.BaseDirectory)` completes before the production pipe server accepts requests. It loads the trusted runtime root's `data/settings.json` through `Configuration.LoadAsync()` and loads mode files into `Global.Modes`. The host then creates one `NetchProcessModeConfigurationCatalog` snapshot and passes the same instance to discovery, validation, and `NetchProcessModeSessionResolver`. The host does not reload configuration during its lifetime.
+`NetchRuntimeBootstrap.InitializeAsync(AppContext.BaseDirectory)` completes before the production pipe server accepts requests. It loads the trusted runtime root's `data/settings.json` through `Configuration.LoadAsync()` and loads mode files into `Global.Modes`. The host then creates one `NetchProcessModeConfigurationCatalog` snapshot and passes the same instance to discovery, validation, and `NetchProcessModeSessionResolver`. The snapshot deep-clones the complete legacy `Setting` object plus selected server and mode execution objects; the session restores those frozen settings immediately before `MainController.StartAsync`, because legacy controllers still read runtime options from `Global.Settings`. The host does not reload configuration during its lifetime.
 
 The shared resolver applies these rules:
 

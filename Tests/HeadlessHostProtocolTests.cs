@@ -41,6 +41,18 @@ public sealed class HeadlessHostProtocolTests
     }
 
     [TestMethod]
+    public void ExistingStartCorrelationAdmissionRemainsCompatible()
+    {
+        const string json = "{\"type\":\"start\",\"correlationId\":\"0123456789abcdef0123456789abcdef\\n\",\"protocolVersion\":2,\"mode\":\"ProcessMode\",\"processName\":\"pso2.exe\",\"targetPid\":4242,\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\",\"permit\":\"header.payload.signature\"}";
+        var challenges = new CoreChallengeService();
+        challenges.Issue();
+
+        Assert.IsTrue(ControlProtocol.TryParseRequest(json, challenges, out var request, out var error));
+        Assert.IsNull(error);
+        Assert.AreEqual(ControlCommand.Start, request!.Command);
+    }
+
+    [TestMethod]
     public void ValidStartRequestProducesTargetBoundConfiguration()
     {
         const string json = "{\"type\":\"start\",\"correlationId\":\"0123456789abcdef0123456789abcdef\",\"protocolVersion\":2,\"mode\":\"ProcessMode\",\"processName\":\"pso2.exe\",\"targetPid\":4242,\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\",\"permit\":\"header.payload.signature\"}";

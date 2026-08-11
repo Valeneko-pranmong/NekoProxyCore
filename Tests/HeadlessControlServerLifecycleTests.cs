@@ -139,6 +139,42 @@ public sealed class HeadlessControlServerLifecycleTests
     }
 
     [TestMethod]
+    public async Task InvalidRuntimeConfigurationProviderResultsFailClosedAndKeepServerAvailable()
+    {
+        var runtime = new RecordingRuntime(ProxyStatusKind.Stopped);
+        using var shutdown = new HostShutdownSignal();
+        var server = new HeadlessControlServer(
+            runtime,
+            new CoreChallengeService(),
+            shutdown,
+            new InvalidResultCatalog(),
+            UniquePipeName());
+        var runTask = server.RunAsync(shutdown.Token);
+
+        await using var client = await ConnectAsync(server.PipeNameForTesting);
+        var catalogResponse = await ExchangeAsync(client,
+            "{\"type\":\"runtimeConfigCatalog\",\"correlationId\":\"11111111111111111111111111111111\"}");
+        var validationResponse = await ExchangeAsync(client,
+            "{\"type\":\"runtimeConfigValidate\",\"correlationId\":\"22222222222222222222222222222222\",\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\"}");
+        var statusResponse = await ExchangeAsync(client,
+            "{\"type\":\"status\",\"correlationId\":\"33333333333333333333333333333333\"}");
+
+        Assert.AreEqual(
+            "{\"type\":\"runtimeConfigCatalogResponse\",\"correlationId\":\"11111111111111111111111111111111\",\"succeeded\":false,\"reason\":\"CatalogUnavailable\"}",
+            catalogResponse);
+        Assert.AreEqual(
+            "{\"type\":\"runtimeConfigValidateResponse\",\"correlationId\":\"22222222222222222222222222222222\",\"succeeded\":false,\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\",\"relationshipValid\":false,\"processModeMatchCount\":0,\"valid\":false}",
+            validationResponse);
+        StringAssert.Contains(statusResponse, "\"type\":\"statusResponse\"");
+        Assert.AreEqual(0, runtime.StartCount);
+        Assert.AreEqual(0, runtime.StopCount);
+        Assert.AreEqual(1, runtime.StatusCount);
+
+        shutdown.RequestShutdown();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    [TestMethod]
     public async Task FailedRuntimeStopDoesNotAcknowledgeOrCancelHost()
     {
         var runtime = new RecordingRuntime(ProxyStatusKind.Running, stopSucceeds: false);
@@ -305,5 +341,19 @@ public sealed class HeadlessControlServerLifecycleTests
             string profileReference,
             string serverReference) =>
             throw new InvalidOperationException("SECRET_EXCEPTION_TEXT");
+    }
+
+    private sealed class InvalidResultCatalog : IProcessModeConfigurationCatalog
+    {
+        public ProcessModeConfigurationCatalogResult GetCatalog() =>
+            ProcessModeConfigurationCatalogResult.Success(new[]
+            {
+                new ProcessModeConfigurationCandidate("profile-0", "server-0", false, 2)
+            });
+
+        public ProcessModeConfigurationValidation Validate(
+            string profileReference,
+            string serverReference) =>
+            new("profile-1", "server-1", true, 1, true);
     }
 }
