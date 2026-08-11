@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.IO.Pipes;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -8,6 +9,7 @@ using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NekoProxyCore.Core;
 using NekoProxyCore.Host;
+using NekoProxyCore.Host.Protocol;
 
 namespace Tests;
 
@@ -75,10 +77,12 @@ public sealed class HeadlessControlServerLifecycleTests
     {
         var runtime = new RecordingRuntime(ProxyStatusKind.Stopped);
         var catalog = new RecordingCatalog();
+        var challenges = new RecordingChallengeService();
+        var seededChallenge = challenges.SeedOutstanding();
         using var shutdown = new HostShutdownSignal();
         var server = new HeadlessControlServer(
             runtime,
-            new CoreChallengeService(),
+            challenges,
             shutdown,
             catalog,
             UniquePipeName());
@@ -97,6 +101,171 @@ public sealed class HeadlessControlServerLifecycleTests
         Assert.AreEqual(0, runtime.StartCount);
         Assert.AreEqual(0, runtime.StopCount);
         Assert.AreEqual(0, runtime.StatusCount);
+        Assert.AreEqual(0, challenges.IssueCount);
+        Assert.AreEqual(0, challenges.ConsumeCount);
+        Assert.AreEqual(0, challenges.ConsumeOutstandingCount);
+        Assert.AreEqual(
+            ChallengeConsumption.Accepted,
+            challenges.ConsumeSeeded(seededChallenge.Value));
+
+        shutdown.RequestShutdown();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    [TestMethod]
+    public async Task OversizedRealFrameIsDroppedAndServerRemainsAvailable()
+    {
+        var runtime = new RecordingRuntime(ProxyStatusKind.Stopped);
+        using var shutdown = new HostShutdownSignal();
+        var server = new HeadlessControlServer(
+            runtime,
+            new CoreChallengeService(),
+            shutdown,
+            UniquePipeName());
+        var runTask = server.RunAsync(shutdown.Token);
+
+        await using (var exactClient = await ConnectAsync(server.PipeNameForTesting))
+        {
+            var exactRequest = CreateFrameWithExactByteCount(ControlProtocol.MaxFrameBytes);
+            var response = await ExchangeAsync(exactClient, exactRequest);
+            StringAssert.Contains(response, "\"errorCode\":\"ProtocolInvalid\"");
+        }
+
+        await using (var oversizedClient = await ConnectAsync(server.PipeNameForTesting))
+        {
+            try
+            {
+                var oversizedRequest = CreateFrameWithExactByteCount(ControlProtocol.MaxFrameBytes + 1);
+                var payload = Encoding.UTF8.GetBytes(oversizedRequest + "\n");
+                await oversizedClient.WriteAsync(payload);
+                await oversizedClient.FlushAsync();
+                using var reader = new StreamReader(
+                    oversizedClient,
+                    new UTF8Encoding(false, true),
+                    false,
+                    1024,
+                    true);
+                Assert.IsNull(await reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(2)));
+            }
+            catch (IOException)
+            {
+                // Closing an oversized client frame may surface as EOF or a broken pipe.
+            }
+        }
+
+        var statusResponse = await ExchangeAsync(
+            server.PipeNameForTesting,
+            "{\"type\":\"status\",\"correlationId\":\"33333333333333333333333333333333\"}");
+        StringAssert.Contains(statusResponse, "\"type\":\"statusResponse\"");
+        Assert.IsFalse(runTask.IsCompleted);
+
+        shutdown.RequestShutdown();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    [DataTestMethod]
+    [DataRow(0)]
+    [DataRow(2)]
+    [DataRow(31)]
+    [DataRow(32)]
+    [DataRow(33)]
+    public async Task RealDispatchPreservesCatalogBoundariesWithoutTruncation(int candidateCount)
+    {
+        var runtime = new RecordingRuntime(ProxyStatusKind.Stopped);
+        using var shutdown = new HostShutdownSignal();
+        var server = new HeadlessControlServer(
+            runtime,
+            new CoreChallengeService(),
+            shutdown,
+            new BoundaryCatalog(candidateCount),
+            UniquePipeName());
+        var runTask = server.RunAsync(shutdown.Token);
+
+        var response = await ExchangeAsync(
+            server.PipeNameForTesting,
+            "{\"type\":\"runtimeConfigCatalog\",\"correlationId\":\"11111111111111111111111111111111\"}");
+
+        using var document = JsonDocument.Parse(response);
+        var root = document.RootElement;
+        Assert.AreEqual("runtimeConfigCatalogResponse", root.GetProperty("type").GetString());
+        if (candidateCount > ProcessModeConfigurationCatalogContract.MaximumCandidates)
+        {
+            Assert.IsFalse(root.GetProperty("succeeded").GetBoolean());
+            Assert.AreEqual("CatalogTooLarge", root.GetProperty("reason").GetString());
+            Assert.IsFalse(root.TryGetProperty("candidates", out _));
+        }
+        else
+        {
+            Assert.IsTrue(root.GetProperty("succeeded").GetBoolean());
+            var candidates = root.GetProperty("candidates");
+            Assert.AreEqual(candidateCount, candidates.GetArrayLength());
+            for (var index = 0; index < candidateCount; index++)
+            {
+                var candidate = candidates[index];
+                CollectionAssert.AreEquivalent(
+                    new[]
+                    {
+                        "profileReference",
+                        "serverReference",
+                        "relationshipValid",
+                        "processModeMatchCount"
+                    },
+                    candidate.EnumerateObject().Select(property => property.Name).ToArray());
+                Assert.AreEqual($"profile-{index}", candidate.GetProperty("profileReference").GetString());
+                Assert.AreEqual("server-0", candidate.GetProperty("serverReference").GetString());
+                Assert.IsTrue(candidate.GetProperty("relationshipValid").GetBoolean());
+                Assert.AreEqual(1, candidate.GetProperty("processModeMatchCount").GetInt32());
+            }
+        }
+        Assert.AreEqual(0, runtime.StartCount);
+
+        shutdown.RequestShutdown();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    [DataTestMethod]
+    [DataRow(true, 1, true, true)]
+    [DataRow(false, 0, false, true)]
+    [DataRow(false, 1, false, true)]
+    [DataRow(true, 0, false, true)]
+    [DataRow(true, 2, false, true)]
+    [DataRow(true, 1, false, false)]
+    [DataRow(false, 1, true, false)]
+    [DataRow(true, 0, true, false)]
+    [DataRow(true, 2, true, false)]
+    public async Task RealDispatchContainsValidationTruthTable(
+        bool relationshipValid,
+        int processModeMatchCount,
+        bool valid,
+        bool providerFactsAreConsistent)
+    {
+        var runtime = new RecordingRuntime(ProxyStatusKind.Stopped);
+        using var shutdown = new HostShutdownSignal();
+        var server = new HeadlessControlServer(
+            runtime,
+            new CoreChallengeService(),
+            shutdown,
+            new ValidationCatalog(relationshipValid, processModeMatchCount, valid),
+            UniquePipeName());
+        var runTask = server.RunAsync(shutdown.Token);
+
+        var response = await ExchangeAsync(
+            server.PipeNameForTesting,
+            "{\"type\":\"runtimeConfigValidate\",\"correlationId\":\"22222222222222222222222222222222\",\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\"}");
+
+        if (providerFactsAreConsistent)
+        {
+            Assert.AreEqual(
+                $"{{\"type\":\"runtimeConfigValidateResponse\",\"correlationId\":\"22222222222222222222222222222222\",\"succeeded\":true,\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\",\"relationshipValid\":{relationshipValid.ToString().ToLowerInvariant()},\"processModeMatchCount\":{processModeMatchCount},\"valid\":{valid.ToString().ToLowerInvariant()}}}",
+                response);
+        }
+        else
+        {
+            Assert.AreEqual(
+                "{\"type\":\"runtimeConfigValidateResponse\",\"correlationId\":\"22222222222222222222222222222222\",\"succeeded\":false,\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\",\"relationshipValid\":false,\"processModeMatchCount\":0,\"valid\":false}",
+                response);
+        }
+        Assert.AreEqual(0, runtime.StartCount);
 
         shutdown.RequestShutdown();
         await runTask.WaitAsync(TimeSpan.FromSeconds(2));
@@ -225,6 +394,9 @@ public sealed class HeadlessControlServerLifecycleTests
 
     private static string UniquePipeName() => $"NekoProxyCore.Tests.{Guid.NewGuid():N}";
 
+    private static string CreateFrameWithExactByteCount(int byteCount) =>
+        new('x', byteCount);
+
     private static async Task<string> ExchangeAsync(string pipeName, string request)
     {
         await using var client = await ConnectAsync(pipeName);
@@ -330,6 +502,96 @@ public sealed class HeadlessControlServerLifecycleTests
                 1,
                 true);
         }
+    }
+
+    private sealed class RecordingChallengeService : ICoreChallengeService
+    {
+        private readonly CoreChallengeService _inner = new();
+
+        public int IssueCount { get; private set; }
+        public int ConsumeCount { get; private set; }
+        public int ConsumeOutstandingCount { get; private set; }
+
+        public CoreChallenge SeedOutstanding() => _inner.Issue();
+
+        public ChallengeConsumption ConsumeSeeded(string challenge) =>
+            _inner.ConsumeForAttempt(challenge);
+
+        public CoreChallenge Issue()
+        {
+            IssueCount++;
+            return _inner.Issue();
+        }
+
+        public ChallengeConsumption ConsumeForAttempt(string challenge)
+        {
+            ConsumeCount++;
+            return _inner.ConsumeForAttempt(challenge);
+        }
+
+        public ChallengeAttempt ConsumeOutstandingForAttempt()
+        {
+            ConsumeOutstandingCount++;
+            return _inner.ConsumeOutstandingForAttempt();
+        }
+    }
+
+    private sealed class BoundaryCatalog : IProcessModeConfigurationCatalog
+    {
+        private readonly int _candidateCount;
+
+        public BoundaryCatalog(int candidateCount) => _candidateCount = candidateCount;
+
+        public ProcessModeConfigurationCatalogResult GetCatalog()
+        {
+            if (_candidateCount > ProcessModeConfigurationCatalogContract.MaximumCandidates)
+            {
+                return ProcessModeConfigurationCatalogResult.Failure(
+                    ProcessModeConfigurationCatalogFailureReason.CatalogTooLarge);
+            }
+
+            return ProcessModeConfigurationCatalogResult.Success(
+                Enumerable.Range(0, _candidateCount)
+                    .Select(index => new ProcessModeConfigurationCandidate(
+                        $"profile-{index}",
+                        "server-0",
+                        true,
+                        1))
+                    .ToArray());
+        }
+
+        public ProcessModeConfigurationValidation Validate(
+            string profileReference,
+            string serverReference) =>
+            new(profileReference, serverReference, false, 0, false);
+    }
+
+    private sealed class ValidationCatalog : IProcessModeConfigurationCatalog
+    {
+        private readonly bool _relationshipValid;
+        private readonly int _processModeMatchCount;
+        private readonly bool _valid;
+
+        public ValidationCatalog(
+            bool relationshipValid,
+            int processModeMatchCount,
+            bool valid) =>
+            (_relationshipValid, _processModeMatchCount, _valid) =
+                (relationshipValid, processModeMatchCount, valid);
+
+        public ProcessModeConfigurationCatalogResult GetCatalog() =>
+            ProcessModeConfigurationCatalogResult.Success(
+                Array.Empty<ProcessModeConfigurationCandidate>());
+
+        public ProcessModeConfigurationValidation Validate(
+            string profileReference,
+            string serverReference) =>
+            new(
+                profileReference,
+                serverReference,
+                _relationshipValid,
+                _processModeMatchCount,
+                _valid);
     }
 
     private sealed class ThrowingCatalog : IProcessModeConfigurationCatalog

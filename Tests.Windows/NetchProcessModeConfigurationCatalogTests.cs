@@ -91,6 +91,7 @@ public sealed class NetchProcessModeConfigurationCatalogTests
     [DataRow("PROFILE_SERVER_MISMATCH", false, 1)]
     [DataRow("MODE_MISSING", true, 0)]
     [DataRow("MODE_AMBIGUOUS", true, 2)]
+    [DataRow("MODE_THREE_OR_MORE", true, 2)]
     [DataRow("DUPLICATE_PROFILE_INDEX", false, 0)]
     public async Task InvalidPairsAreNotReturnedAndResolverAlsoRejectsThemAsync(
         string scenario,
@@ -436,6 +437,8 @@ public sealed class NetchProcessModeConfigurationCatalogTests
 
         AddMode("MODE_A");
         AddMode("MODE_A");
+        if (scenario == "MODE_THREE_OR_MORE")
+            AddMode("MODE_A");
     }
 
     private static ProxyConfiguration CreateConfiguration(

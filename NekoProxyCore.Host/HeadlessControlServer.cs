@@ -66,7 +66,19 @@ internal sealed class HeadlessControlServer
                     PipeTransmissionMode.Byte,
                     PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
                 await pipe.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
-                await ServeClientAsync(pipe, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await ServeClientAsync(pipe, cancellationToken).ConfigureAwait(false);
+                }
+                catch (IOException)
+                {
+                    // Malformed, oversized, incomplete, or disconnected client frames are
+                    // isolated to that CurrentUserOnly pipe connection.
+                }
+                catch (DecoderFallbackException)
+                {
+                    // Strict UTF-8 decoding failures are client-local protocol failures.
+                }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
