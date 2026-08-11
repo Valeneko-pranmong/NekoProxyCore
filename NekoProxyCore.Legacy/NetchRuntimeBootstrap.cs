@@ -32,7 +32,7 @@ public static class NetchRuntimeBootstrap
         {
             try
             {
-                Global.Modes.Add(ModeHelper.LoadMode(file));
+                Global.Modes.Add(ModeHelper.LoadMode(file, modeRoot));
             }
             catch (NotSupportedException)
             {
@@ -89,16 +89,7 @@ public static class NetchRuntimeBootstrap
         {
             LoadModes(canonicalRoot);
 
-            var catalog = new NetchProcessModeConfigurationCatalog();
-            var result = catalog.GetCatalog();
-            if (Global.Settings.Profiles.Count != 1 ||
-                Global.Settings.Server.Count != 5 ||
-                !result.Succeeded ||
-                result.Candidates.Count != 1 ||
-                !string.Equals(result.Candidates[0].ProfileReference, "profile-0", StringComparison.Ordinal) ||
-                !string.Equals(result.Candidates[0].ServerReference, "server-0", StringComparison.Ordinal) ||
-                !catalog.Validate("profile-0", "server-0").Valid)
-                throw new ProtectedSettingsException();
+            ProductionProtectedSettingsValidator.Validate(Global.Settings, Global.Modes);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {

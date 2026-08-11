@@ -20,6 +20,7 @@
     <Compile Remove="NetchRuntimeBootstrap.cs" />
     <Compile Remove="ProtectedSettingsPayload.cs" />
     <Compile Remove="ProtectedSettingsProvisioner.cs" />
+    <Compile Remove="ProductionProtectedSettingsValidator.cs" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net6.0-windows'">

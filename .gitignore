@@ -10,6 +10,8 @@
 /NekoProxyCore.Host/obj/
 /Tests.Windows/bin/
 /Tests.Windows/obj/
+/Tests.ProcessChild/bin/
+/Tests.ProcessChild/obj/
 /NekoProxyCore.SettingsTool/bin/
 /NekoProxyCore.SettingsTool/obj/
 /Original setting/

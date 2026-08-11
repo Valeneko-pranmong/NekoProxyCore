@@ -12,6 +12,10 @@
     <ProjectReference Include="..\NekoProxyCore.Core\NekoProxyCore.Core.csproj" />
     <ProjectReference Include="..\NekoProxyCore.Host\NekoProxyCore.Host.csproj" />
     <ProjectReference Include="..\NekoProxyCore.Legacy\NekoProxyCore.Legacy.csproj" />
+    <ProjectReference Include="..\Tests.ProcessChild\Tests.ProcessChild.csproj"
+                      ReferenceOutputAssembly="false"
+                      OutputItemType="Content"
+                      CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="..\Netch\Netch.csproj"
                       AdditionalProperties="HeadlessCoreBuild=true;Platform=x64;GenerateDependencyFile=false" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.2.0" />

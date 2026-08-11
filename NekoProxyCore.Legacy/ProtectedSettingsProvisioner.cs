@@ -14,9 +14,12 @@ public static class ProtectedSettingsProvisioner
     public static async Task<ProtectedSettingsStructuralFacts> VerifyAsync(
         string protectedPayloadPath,
         string keyPath,
+        string trustedModeRoot,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(protectedPayloadPath) || string.IsNullOrWhiteSpace(keyPath))
+        if (string.IsNullOrWhiteSpace(protectedPayloadPath) ||
+            string.IsNullOrWhiteSpace(keyPath) ||
+            string.IsNullOrWhiteSpace(trustedModeRoot))
             throw new ProtectedSettingsException();
 
         byte[]? key = null;
@@ -43,7 +46,7 @@ public static class ProtectedSettingsProvisioner
             }
             await using var stream = new MemoryStream(plaintext, writable: false);
             var settings = await Configuration.ParseAsync(stream).ConfigureAwait(false);
-            return ValidateStructure(settings);
+            return ProductionProtectedSettingsValidator.Validate(settings, trustedModeRoot);
         }
         catch (OperationCanceledException)
         {
@@ -66,11 +69,13 @@ public static class ProtectedSettingsProvisioner
         string externalSettingsPath,
         string protectedPayloadPath,
         string keyPath,
+        string trustedModeRoot,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(externalSettingsPath) ||
             string.IsNullOrWhiteSpace(protectedPayloadPath) ||
-            string.IsNullOrWhiteSpace(keyPath))
+            string.IsNullOrWhiteSpace(keyPath) ||
+            string.IsNullOrWhiteSpace(trustedModeRoot))
             throw new ProtectedSettingsException();
 
         var input = Path.GetFullPath(externalSettingsPath);
@@ -95,7 +100,7 @@ public static class ProtectedSettingsProvisioner
                              FileOptions.Asynchronous | FileOptions.SequentialScan))
             {
                 var settings = await Configuration.ParseAsync(inputStream).ConfigureAwait(false);
-                var facts = ValidateStructure(settings);
+                var facts = ProductionProtectedSettingsValidator.Validate(settings, trustedModeRoot);
 
                 key = RandomNumberGenerator.GetBytes(ProtectedSettingsPayload.KeySizeBytes);
                 Directory.CreateDirectory(Path.GetDirectoryName(payload)!);
@@ -150,26 +155,6 @@ public static class ProtectedSettingsProvisioner
         }
     }
 
-    private static ProtectedSettingsStructuralFacts ValidateStructure(Netch.Models.Setting settings)
-    {
-        var pso2Profiles = settings.Profiles
-            .Where(profile => string.Equals(profile.ModeRemark, "PSO2", StringComparison.Ordinal))
-            .ToArray();
-        var relationshipValid = pso2Profiles.Length == 1 &&
-                                settings.Server.Count(server => string.Equals(
-                                    server.Remark,
-                                    pso2Profiles[0].ServerRemark,
-                                    StringComparison.Ordinal)) == 1;
-        var facts = new ProtectedSettingsStructuralFacts(
-            settings.Profiles.Count,
-            settings.Server.Count,
-            pso2Profiles.Length == 1,
-            relationshipValid);
-        if (facts.ProfileCount != 1 || facts.ServerCount != 5 ||
-            !facts.Pso2ProfileExists || !facts.ProfileServerRelationshipValid)
-            throw new ProtectedSettingsException();
-        return facts;
-    }
 
     private static void DeleteOutputSafely(string path)
     {

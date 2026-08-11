@@ -22,7 +22,8 @@ public sealed class ProtectedSettingsProvisionerTests
         var facts = await ProtectedSettingsProvisioner.ProvisionAsync(
             fixture.InputPath,
             fixture.PayloadPath,
-            fixture.KeyPath);
+            fixture.KeyPath,
+            fixture.ModeRoot);
 
         Assert.AreEqual(1, facts.ProfileCount);
         Assert.AreEqual(5, facts.ServerCount);
@@ -36,6 +37,22 @@ public sealed class ProtectedSettingsProvisionerTests
     }
 
     [TestMethod]
+    public async Task ProvisionerAcceptsCanonicalSettingsAgainstThePackagedModeBundleAsync()
+    {
+        using var fixture = new Fixture();
+        await fixture.WriteSettingsAsync(validRelationship: true);
+
+        var facts = await ProtectedSettingsProvisioner.ProvisionAsync(
+            fixture.InputPath,
+            fixture.PayloadPath,
+            fixture.KeyPath,
+            Path.Combine(FindRepositoryRoot(), "Storage", "mode"));
+
+        Assert.AreEqual(1, facts.ProfileCount);
+        Assert.AreEqual(5, facts.ServerCount);
+    }
+
+    [TestMethod]
     public async Task ProvisionerRejectsInvalidRelationshipWithoutLeavingOutputsAsync()
     {
         using var fixture = new Fixture();
@@ -45,7 +62,8 @@ public sealed class ProtectedSettingsProvisionerTests
             ProtectedSettingsProvisioner.ProvisionAsync(
                 fixture.InputPath,
                 fixture.PayloadPath,
-                fixture.KeyPath));
+                fixture.KeyPath,
+                fixture.ModeRoot));
 
         Assert.IsFalse(File.Exists(fixture.PayloadPath));
         Assert.IsFalse(File.Exists(fixture.KeyPath));
@@ -60,8 +78,12 @@ public sealed class ProtectedSettingsProvisionerTests
         await ProtectedSettingsProvisioner.ProvisionAsync(
             fixture.InputPath,
             fixture.PayloadPath,
-            fixture.KeyPath);
-        var facts = await ProtectedSettingsProvisioner.VerifyAsync(fixture.PayloadPath, fixture.KeyPath);
+            fixture.KeyPath,
+            fixture.ModeRoot);
+        var facts = await ProtectedSettingsProvisioner.VerifyAsync(
+                fixture.PayloadPath,
+                fixture.KeyPath,
+                fixture.ModeRoot);
 
         Assert.AreEqual(1, facts.ProfileCount);
         Assert.AreEqual(5, facts.ServerCount);
@@ -77,13 +99,17 @@ public sealed class ProtectedSettingsProvisionerTests
         await ProtectedSettingsProvisioner.ProvisionAsync(
             fixture.InputPath,
             fixture.PayloadPath,
-            fixture.KeyPath);
+            fixture.KeyPath,
+            fixture.ModeRoot);
         await File.WriteAllBytesAsync(
             fixture.KeyPath,
             RandomNumberGenerator.GetBytes(ProtectedSettingsPayload.KeySizeBytes));
 
         await Assert.ThrowsExceptionAsync<ProtectedSettingsException>(
-            () => ProtectedSettingsProvisioner.VerifyAsync(fixture.PayloadPath, fixture.KeyPath));
+            () => ProtectedSettingsProvisioner.VerifyAsync(
+                fixture.PayloadPath,
+                fixture.KeyPath,
+                fixture.ModeRoot));
     }
 
     [TestMethod]
@@ -94,7 +120,8 @@ public sealed class ProtectedSettingsProvisionerTests
         await ProtectedSettingsProvisioner.ProvisionAsync(
             fixture.InputPath,
             fixture.PayloadPath,
-            fixture.KeyPath);
+            fixture.KeyPath,
+            fixture.ModeRoot);
 
         var malformedInput = Path.Combine(Path.GetDirectoryName(fixture.InputPath)!, "malformed.json");
         await File.WriteAllTextAsync(malformedInput, "{}");
@@ -112,7 +139,10 @@ public sealed class ProtectedSettingsProvisionerTests
         }
 
         await Assert.ThrowsExceptionAsync<ProtectedSettingsException>(
-            () => ProtectedSettingsProvisioner.VerifyAsync(fixture.PayloadPath, fixture.KeyPath));
+            () => ProtectedSettingsProvisioner.VerifyAsync(
+                fixture.PayloadPath,
+                fixture.KeyPath,
+                fixture.ModeRoot));
     }
 
     private sealed class Fixture : IDisposable
@@ -121,11 +151,19 @@ public sealed class ProtectedSettingsProvisionerTests
             Path.GetTempPath(),
             "neko-settings-provisioner-test-" + Guid.NewGuid().ToString("N"));
 
-        public Fixture() => Directory.CreateDirectory(_root);
+        public Fixture()
+        {
+            var modeDirectory = Path.Combine(ModeRoot, "Custom");
+            Directory.CreateDirectory(modeDirectory);
+            File.Copy(
+                Path.Combine(FindRepositoryRoot(), "Storage", "mode", "Custom", "PSO2.json"),
+                Path.Combine(modeDirectory, "PSO2.json"));
+        }
 
         public string InputPath => Path.Combine(_root, "external-input.json");
         public string PayloadPath => Path.Combine(_root, "runtime-settings.nkps");
         public string KeyPath => Path.Combine(_root, "runtime-settings.key");
+        public string ModeRoot => Path.Combine(_root, "mode");
 
         public async Task WriteSettingsAsync(bool validRelationship)
         {
@@ -156,5 +194,14 @@ public sealed class ProtectedSettingsProvisionerTests
         }
 
         public void Dispose() => Directory.Delete(_root, recursive: true);
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory != null && !File.Exists(Path.Combine(directory.FullName, "Netch.sln")))
+            directory = directory.Parent;
+
+        return directory?.FullName ?? throw new AssertFailedException("Unable to locate the repository root.");
     }
 }

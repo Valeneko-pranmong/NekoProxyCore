@@ -36,15 +36,18 @@ determined reverse engineer with local access to the client process or binary.
 
 ## Provision and rotate
 
-Keep all three paths outside the repository:
+Keep the three sensitive paths outside the repository and pass the trusted
+packaged mode root explicitly:
 
 ```text
 dotnet run --project NekoProxyCore.SettingsTool/NekoProxyCore.SettingsTool.csproj \
-  -c Release -- seal <external-settings.json> <runtime-settings.nkps> <runtime-settings.key>
+  -c Release -- seal <external-settings.json> <runtime-settings.nkps> <runtime-settings.key> \
+  <trusted-mode-root>
 ```
 
 Successful output contains structural facts only: one profile, five servers,
-PSO2 profile present, and valid profile/server relationship. It never emits
+PSO2 profile present, and valid canonical `profile-0/server-0` relationship.
+Acceptance also requires exactly one packaged PSO2 mode match. It never emits
 server values or credentials. The command uses a fresh random AES key and nonce,
 refuses existing output paths, cleans partial output on failure, and exits
 nonzero on invalid input.
@@ -61,9 +64,12 @@ dotnet publish NekoProxyCore.Host/NekoProxyCore.Host.csproj \
   -o <publish-directory>
 ```
 
-The publish target authenticates/decrypts the exact payload/key pair and rechecks
-the required structural facts before packaging. A mismatched, tampered, or
-malformed pair blocks publish instead of producing an artifact that fails later.
+The publish target authenticates/decrypts the exact payload/key pair and invokes
+the same production acceptance validator against the packaged `Storage/mode`
+bundle that startup uses. It requires the unique valid opaque candidate to be
+exactly `profile-0/server-0` with one PSO2 mode match. A mismatched, tampered,
+malformed, or runtime-incompatible pair blocks publish instead of producing an
+artifact that fails later.
 
 The authorized SOCKS child path feeds its generated client configuration to
 `v2ray-sn.exe` over redirected standard input (`run -c stdin:`), then clears the
