@@ -7,6 +7,7 @@ using Netch.Models;
 using Netch.Models.Modes;
 using Netch.Models.Modes.ProcessMode;
 using Netch.Servers;
+using Netch.Utils;
 
 namespace Tests.Windows;
 
@@ -34,6 +35,24 @@ public sealed class NetchProcessModeConfigurationCatalogTests
         Global.Modes.Clear();
         if (_originalModes != null)
             Global.Modes.AddRange(_originalModes);
+    }
+
+    [TestMethod]
+    public void CoreStorageContainsExactHistoricalPso2ProcessMode()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var modePath = Path.Combine(repositoryRoot, "Storage", "mode", "Custom", "PSO2.json");
+
+        Assert.IsTrue(File.Exists(modePath), "The historical PSO2 ProcessMode definition is missing.");
+        Assert.AreEqual(
+            "23b3ea655e5ec96d84e37ac649e6da7f0f9d6090b28c82d48425152110ebc213",
+            Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(modePath)))
+                .ToLowerInvariant());
+        var mode = ModeHelper.LoadMode(modePath);
+        Assert.IsInstanceOfType(mode, typeof(Redirector));
+        Assert.AreEqual(
+            1,
+            mode.Remark.Values.Count(value => string.Equals(value, "PSO2", StringComparison.Ordinal)));
     }
 
     [TestMethod]
@@ -476,6 +495,15 @@ public sealed class NetchProcessModeConfigurationCatalogTests
         {
             Remark = new Dictionary<string, string> { ["en"] = remark }
         });
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory != null && !File.Exists(Path.Combine(directory.FullName, "Netch.sln")))
+            directory = directory.Parent;
+
+        return directory?.FullName ?? throw new AssertFailedException("Unable to locate the repository root.");
+    }
 
     private sealed class NullStatusSink : IProxyStatusSink
     {
