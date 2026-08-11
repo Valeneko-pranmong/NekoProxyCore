@@ -231,7 +231,8 @@ public static class ControlProtocol
             !ProcessModeConfigurationReference.TryParseProfile(validation.ProfileReference, out _) ||
             !ProcessModeConfigurationReference.TryParseServer(validation.ServerReference, out _) ||
             validation.ProcessModeMatchCount is < 0 or > 2 ||
-            validation.Valid && (!validation.RelationshipValid || validation.ProcessModeMatchCount != 1) ||
+            validation.Valid !=
+                (validation.RelationshipValid && validation.ProcessModeMatchCount == 1) ||
             !succeeded && validation.Valid)
         {
             throw new ArgumentException("Validation response is invalid.");

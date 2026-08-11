@@ -261,6 +261,23 @@ public sealed class HeadlessHostProtocolTests
             json);
     }
 
+    [TestMethod]
+    public void RuntimeConfigurationValidationRejectsContradictoryValidityFacts()
+    {
+        var validation = new ProcessModeConfigurationValidation(
+            "profile-12",
+            "server-3",
+            true,
+            1,
+            false);
+
+        Assert.ThrowsException<ArgumentException>(() =>
+            ControlProtocol.SerializeRuntimeConfigValidation(
+                "0123456789abcdef0123456789abcdef",
+                validation,
+                succeeded: true));
+    }
+
     [DataTestMethod]
     [DataRow("runtimeConfigCatalog")]
     [DataRow("runtimeConfigValidate")]
