@@ -169,12 +169,14 @@ public sealed class NetchProcessModeConfigurationCatalogTests
         Assert.AreEqual(0, result.Candidates.Count);
     }
 
-    [TestMethod]
-    public void CatalogAtExactLimitSucceedsAsOneCompleteBoundedWireResponse()
+    [DataTestMethod]
+    [DataRow(31)]
+    [DataRow(ProcessModeConfigurationCatalogContract.MaximumCandidates)]
+    public void CatalogAtOrBelowLimitSucceedsAsOneCompleteBoundedWireResponse(int candidateCount)
     {
         AddServer("SHARED_SERVER");
         AddMode("SHARED_MODE");
-        for (var index = 0; index < ProcessModeConfigurationCatalogContract.MaximumCandidates; index++)
+        for (var index = 0; index < candidateCount; index++)
             AddProfile(index, "SHARED_SERVER", "SHARED_MODE");
 
         var result = new NetchProcessModeConfigurationCatalog().GetCatalog();
@@ -184,11 +186,11 @@ public sealed class NetchProcessModeConfigurationCatalogTests
 
         Assert.IsTrue(result.Succeeded);
         Assert.IsNull(result.FailureReason);
-        Assert.AreEqual(ProcessModeConfigurationCatalogContract.MaximumCandidates, result.Candidates.Count);
+        Assert.AreEqual(candidateCount, result.Candidates.Count);
         Assert.IsTrue(System.Text.Encoding.UTF8.GetByteCount(json + "\n") <= ControlProtocol.MaxFrameBytes);
         using var document = System.Text.Json.JsonDocument.Parse(json);
         Assert.AreEqual(
-            ProcessModeConfigurationCatalogContract.MaximumCandidates,
+            candidateCount,
             document.RootElement.GetProperty("candidates").GetArrayLength());
     }
 
@@ -344,7 +346,7 @@ public sealed class NetchProcessModeConfigurationCatalogTests
     }
 
     [TestMethod]
-    public void SerializedCatalogAndValidationNeverContainHostileConfigurationSecrets()
+    public async Task SerializedCatalogValidationAndDiagnosticsNeverContainHostileConfigurationSecretsAsync()
     {
         var originalEnvironmentMarker = Environment.GetEnvironmentVariable("NEKO_TEST_SECRET_MARKER");
         Environment.SetEnvironmentVariable("NEKO_TEST_SECRET_MARKER", "ENVIRONMENT_SECRET");
@@ -359,7 +361,15 @@ public sealed class NetchProcessModeConfigurationCatalogTests
             "fedcba9876543210fedcba9876543210",
             catalog.Validate("profile-0", "server-0"),
             succeeded: true);
-        var output = catalogJson + validationJson;
+        using var diagnosticWriter = new StringWriter();
+        var resolver = new NetchProcessModeSessionResolver(
+            catalog,
+            new SanitizedTextCoreDiagnosticSink(diagnosticWriter));
+        _ = await resolver.ResolveAsync(
+            CreateConfiguration("profile-0", "server-0"),
+            NullStatusSink.Instance,
+            CancellationToken.None);
+        var output = catalogJson + validationJson + diagnosticWriter;
         Environment.SetEnvironmentVariable("NEKO_TEST_SECRET_MARKER", originalEnvironmentMarker);
 
         foreach (var marker in new[]
