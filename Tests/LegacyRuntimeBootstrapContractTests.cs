@@ -47,6 +47,43 @@ public sealed class LegacyRuntimeBootstrapContractTests
     }
 
     [TestMethod]
+    public void ProductionHostRequiresProtectedSettingsWithoutPlaintextFallback()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var source = File.ReadAllText(Path.Combine(repositoryRoot, "NekoProxyCore.Host", "Program.cs"));
+
+        Assert.IsTrue(source.Contains("NetchRuntimeBootstrap.InitializeProtectedAsync", StringComparison.Ordinal));
+        Assert.IsTrue(source.Contains("ProductionProtectedSettings.LoadKey", StringComparison.Ordinal));
+        Assert.IsTrue(source.Contains("ProtectedSettingsPayload.DefaultFileName", StringComparison.Ordinal));
+        Assert.IsFalse(source.Contains("NetchRuntimeBootstrap.InitializeAsync", StringComparison.Ordinal));
+        Assert.IsFalse(source.Contains("settings.json", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [TestMethod]
+    public void ProductionPublishVerifiesProtectedPayloadAndKeyPair()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var project = File.ReadAllText(Path.Combine(repositoryRoot, "NekoProxyCore.Host", "NekoProxyCore.Host.csproj"));
+        var tool = File.ReadAllText(Path.Combine(repositoryRoot, "NekoProxyCore.SettingsTool", "Program.cs"));
+
+        Assert.IsTrue(project.Contains("VerifyProtectedSettingsPair", StringComparison.Ordinal));
+        Assert.IsTrue(project.Contains("ProtectedSettingsProvisioningTool", StringComparison.Ordinal));
+        Assert.IsTrue(project.Contains("Targets=\"Restore;Build\"", StringComparison.Ordinal));
+        Assert.IsTrue(tool.Contains("ProtectedSettingsProvisioner.VerifyAsync", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void SocksProductionPathStreamsChildConfigurationWithoutPlaintextTempFile()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var source = File.ReadAllText(Path.Combine(repositoryRoot, "Netch", "Servers", "V2ray", "V2rayController.cs"));
+
+        Assert.IsFalse(source.Contains("Constants.TempConfig", StringComparison.Ordinal));
+        Assert.IsFalse(source.Contains("FileStream", StringComparison.Ordinal));
+        Assert.IsTrue(source.Contains("StartGuardWithStandardInputAsync", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void SessionRestoresFrozenRuntimeSettingsAtLegacyStartBoundary()
     {
         var repositoryRoot = FindRepositoryRoot();

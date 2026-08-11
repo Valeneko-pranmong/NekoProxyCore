@@ -57,6 +57,23 @@ public abstract class Guard
 
     protected async Task StartGuardAsync(string argument, ProcessPriorityClass priority = ProcessPriorityClass.Normal)
     {
+        await StartGuardCoreAsync(argument, standardInput: null, priority).ConfigureAwait(false);
+    }
+
+    protected async Task StartGuardWithStandardInputAsync(
+        string argument,
+        ReadOnlyMemory<byte> standardInput,
+        ProcessPriorityClass priority = ProcessPriorityClass.Normal)
+    {
+        Instance.StartInfo.RedirectStandardInput = true;
+        await StartGuardCoreAsync(argument, standardInput, priority).ConfigureAwait(false);
+    }
+
+    private async Task StartGuardCoreAsync(
+        string argument,
+        ReadOnlyMemory<byte>? standardInput,
+        ProcessPriorityClass priority)
+    {
         State = State.Starting;
 
         _logFileStream = new FileStream(LogPath, FileMode.Create, FileAccess.Write, FileShare.Read, 4096, true);
@@ -65,6 +82,20 @@ public abstract class Guard
         Instance.StartInfo.Arguments = argument;
         Instance.Start();
         Global.Job.AddProcess(Instance);
+        if (standardInput.HasValue)
+        {
+            try
+            {
+                await Instance.StandardInput.BaseStream.WriteAsync(standardInput.Value).ConfigureAwait(false);
+                await Instance.StandardInput.BaseStream.FlushAsync().ConfigureAwait(false);
+                Instance.StandardInput.Close();
+            }
+            catch
+            {
+                await StopGuardAsync().ConfigureAwait(false);
+                throw;
+            }
+        }
 
         if (priority != ProcessPriorityClass.Normal)
             Instance.PriorityClass = priority;

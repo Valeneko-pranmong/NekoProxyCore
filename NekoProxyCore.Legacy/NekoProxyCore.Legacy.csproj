@@ -18,6 +18,8 @@
     <Compile Remove="NetchProcessModeConfigurationCatalog.cs" />
     <Compile Remove="NetchProcessModeSessionResolver.cs" />
     <Compile Remove="NetchRuntimeBootstrap.cs" />
+    <Compile Remove="ProtectedSettingsPayload.cs" />
+    <Compile Remove="ProtectedSettingsProvisioner.cs" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net6.0-windows'">

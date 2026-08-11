@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using NekoProxyCore.Core;
 using NekoProxyCore.Host.Authorization;
 #if WINDOWS
@@ -35,7 +36,19 @@ internal static class Program
                 // initialization; there is no authorization fallback in the production entry point.
                 var startAuthorizer = ProductionAuthorizationComposition.CreateStartAuthorizer(
                     ProductionPublicKeys.LoadBundled(), null, diagnostics);
-                await NetchRuntimeBootstrap.InitializeAsync(AppContext.BaseDirectory).ConfigureAwait(false);
+                var settingsKey = ProductionProtectedSettings.LoadKey();
+                try
+                {
+                    await NetchRuntimeBootstrap.InitializeProtectedAsync(
+                            AppContext.BaseDirectory,
+                            Path.Combine(AppContext.BaseDirectory, ProtectedSettingsPayload.DefaultFileName),
+                            settingsKey)
+                        .ConfigureAwait(false);
+                }
+                finally
+                {
+                    CryptographicOperations.ZeroMemory(settingsKey);
+                }
                 var configurationCatalog = new NetchProcessModeConfigurationCatalog();
                 var statusSink = new NullStatusSink();
                 var engine = new NetchProcessModeEngine(

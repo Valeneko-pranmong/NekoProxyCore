@@ -56,19 +56,27 @@ public static class Configuration
         }
     }
 
+    /// <summary>
+    ///     Parses configuration from a caller-owned stream with the legacy converters and
+    ///     normalization. The caller controls the stream lifetime and no file is created.
+    /// </summary>
+    public static async ValueTask<Setting> ParseAsync(Stream stream)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        var settings = await JsonSerializer.DeserializeAsync<Setting>(stream, JsonSerializerOptions) ??
+                       throw new JsonException("The settings payload is empty.");
+        CheckSetting(settings);
+        return settings;
+    }
+
     private static async ValueTask<bool> LoadCoreAsync(string filename)
     {
         try
         {
-            Setting settings;
-
             await using (var fs = new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, true))
             {
-                settings = (await JsonSerializer.DeserializeAsync<Setting>(fs, JsonSerializerOptions))!;
+                Global.Settings = await ParseAsync(fs);
             }
-
-            CheckSetting(settings);
-            Global.Settings = settings;
             return true;
         }
         catch (Exception e)
