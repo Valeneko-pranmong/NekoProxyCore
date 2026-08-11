@@ -279,6 +279,28 @@ public sealed class HeadlessHostProtocolTests
     }
 
     [DataTestMethod]
+    [DataRow(true, 0)]
+    [DataRow(false, 1)]
+    [DataRow(true, 2)]
+    public void FailedRuntimeConfigurationValidationRequiresFixedSafeFacts(
+        bool relationshipValid,
+        int processModeMatchCount)
+    {
+        var validation = new ProcessModeConfigurationValidation(
+            "profile-12",
+            "server-3",
+            relationshipValid,
+            processModeMatchCount,
+            false);
+
+        Assert.ThrowsException<ArgumentException>(() =>
+            ControlProtocol.SerializeRuntimeConfigValidation(
+                "0123456789abcdef0123456789abcdef",
+                validation,
+                succeeded: false));
+    }
+
+    [DataTestMethod]
     [DataRow("runtimeConfigCatalog")]
     [DataRow("runtimeConfigValidate")]
     public void OversizedRuntimeConfigurationRequestsAreRejected(string type)

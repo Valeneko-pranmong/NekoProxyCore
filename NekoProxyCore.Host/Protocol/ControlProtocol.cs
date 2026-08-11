@@ -233,7 +233,10 @@ public static class ControlProtocol
             validation.ProcessModeMatchCount is < 0 or > 2 ||
             validation.Valid !=
                 (validation.RelationshipValid && validation.ProcessModeMatchCount == 1) ||
-            !succeeded && validation.Valid)
+            !succeeded &&
+                (validation.RelationshipValid ||
+                 validation.ProcessModeMatchCount != 0 ||
+                 validation.Valid))
         {
             throw new ArgumentException("Validation response is invalid.");
         }
