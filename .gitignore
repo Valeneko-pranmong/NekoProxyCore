@@ -10,5 +10,9 @@
 /NekoProxyCore.Host/obj/
 /Tests.Windows/bin/
 /Tests.Windows/obj/
+/NekoProxyCore.SettingsTool/bin/
+/NekoProxyCore.SettingsTool/obj/
 /Original setting/
 /tools/*.pem
+**/runtime-settings.key
+**/runtime-settings.nkps

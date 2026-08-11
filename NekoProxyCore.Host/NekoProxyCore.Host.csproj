@@ -27,6 +27,36 @@
                       LogicalName="NekoProxyCore.Host.Authorization.production-public-keys.json" />
   </ItemGroup>
 
+  <ItemGroup Condition="'$(TargetFramework)' == 'net6.0-windows' and Exists('$(NekoProtectedSettingsKeyFile)')">
+    <EmbeddedResource Include="$(NekoProtectedSettingsKeyFile)"
+                      LogicalName="NekoProxyCore.Host.runtime-settings.key"
+                      WithCulture="false"
+                      Type="Non-Resx" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net6.0-windows' and Exists('$(NekoProtectedSettingsPayload)')">
+    <Content Include="$(NekoProtectedSettingsPayload)">
+      <Link>runtime-settings.nkps</Link>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <Target Condition="'$(TargetFramework)' == 'net6.0-windows'"
+          Name="VerifyProtectedSettingsPair"
+          BeforeTargets="Publish">
+    <Error Condition="'$(NekoProtectedSettingsKeyFile)' == '' or !Exists('$(NekoProtectedSettingsKeyFile)')"
+           Text="An external NekoProtectedSettingsKeyFile is required for production publish." />
+    <Error Condition="'$(NekoProtectedSettingsPayload)' == '' or !Exists('$(NekoProtectedSettingsPayload)')"
+           Text="An approved external NekoProtectedSettingsPayload is required for production publish." />
+    <PropertyGroup>
+      <ProtectedSettingsProvisioningTool>$(MSBuildThisFileDirectory)..\NekoProxyCore.SettingsTool\bin\x64\$(Configuration)\net6.0-windows\win-x64\NekoProxyCore.SettingsTool.dll</ProtectedSettingsProvisioningTool>
+    </PropertyGroup>
+    <MSBuild Projects="$(MSBuildThisFileDirectory)..\NekoProxyCore.SettingsTool\NekoProxyCore.SettingsTool.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);Platform=x64;RuntimeIdentifier=win-x64" />
+    <Exec Command="dotnet &quot;$(ProtectedSettingsProvisioningTool)&quot; verify &quot;$(NekoProtectedSettingsPayload)&quot; &quot;$(NekoProtectedSettingsKeyFile)&quot;" />
+  </Target>
+
   <ItemGroup Condition="'$(TargetFramework)' == 'net6.0-windows'">
     <Content Include="..\Storage\mode\**\*">
       <Link>mode\%(RecursiveDir)%(Filename)%(Extension)</Link>
