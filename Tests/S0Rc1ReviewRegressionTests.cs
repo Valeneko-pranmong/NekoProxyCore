@@ -109,6 +109,10 @@ public sealed class S0Rc1ReviewRegressionTests
         Assert.AreEqual(0, (int)ControlCommand.Start);
         Assert.AreEqual(1, (int)ControlCommand.Status);
         Assert.AreEqual(2, (int)ControlCommand.Stop);
+        Assert.AreEqual(3, (int)ControlCommand.Challenge);
+        Assert.AreEqual(4, (int)ControlCommand.Shutdown);
+        Assert.AreEqual(5, (int)ControlCommand.RuntimeConfigCatalog);
+        Assert.AreEqual(6, (int)ControlCommand.RuntimeConfigValidate);
     }
 
     private sealed class NameOnlyResolver : IProcessResolver

@@ -8,7 +8,9 @@ public enum ControlCommand
     Status = 1,
     Stop = 2,
     Challenge = 3,
-    Shutdown = 4
+    Shutdown = 4,
+    RuntimeConfigCatalog = 5,
+    RuntimeConfigValidate = 6
 }
 
 public sealed class ControlRequest

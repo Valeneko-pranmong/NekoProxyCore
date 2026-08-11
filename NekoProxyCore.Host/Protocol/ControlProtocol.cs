@@ -14,7 +14,7 @@ public static class ControlProtocol
     public const int MaxPermitCharacters = 4096;
 
     private static readonly Regex CorrelationIdPattern = new(
-        "^[0-9a-f]{32}$",
+        "^[0-9a-f]{32}\\z",
         RegexOptions.CultureInvariant);
 
     private static readonly Regex ProfileReferencePattern = new(
@@ -60,13 +60,19 @@ public static class ControlProtocol
                 return Fail(out error);
             }
 
-            var expectedFields = command == ControlCommand.Start
-                ? new HashSet<string>(StringComparer.Ordinal)
+            var expectedFields = command switch
+            {
+                ControlCommand.Start => new HashSet<string>(StringComparer.Ordinal)
                 {
                     "type", "correlationId", "protocolVersion", "processName", "targetPid", "mode",
                     "profileReference", "serverReference", "permit"
-                }
-                : new HashSet<string>(StringComparer.Ordinal) { "type", "correlationId" };
+                },
+                ControlCommand.RuntimeConfigValidate => new HashSet<string>(StringComparer.Ordinal)
+                {
+                    "type", "correlationId", "profileReference", "serverReference"
+                },
+                _ => new HashSet<string>(StringComparer.Ordinal) { "type", "correlationId" }
+            };
             if (!HasExactFields(root, expectedFields))
                 return Fail(out error, correlationId);
 
@@ -103,6 +109,16 @@ public static class ControlProtocol
                 if (challenge.Consumption != ChallengeConsumption.Accepted)
                     return Fail(out error, correlationId);
                 admittedChallenge = challenge.Value;
+            }
+            else if (command == ControlCommand.RuntimeConfigValidate)
+            {
+                if (!TryGetString(root, "profileReference", out profileReference) ||
+                    !ProfileReferencePattern.IsMatch(profileReference) ||
+                    !TryGetString(root, "serverReference", out serverReference) ||
+                    !ServerReferencePattern.IsMatch(serverReference))
+                {
+                    return Fail(out error, correlationId);
+                }
             }
 
             request = new ControlRequest(
@@ -148,6 +164,86 @@ public static class ControlProtocol
             challenge.Value), SerializerOptions);
     }
 
+    public static string SerializeRuntimeConfigCatalog(
+        string correlationId,
+        ProcessModeConfigurationCatalogResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (!CorrelationIdPattern.IsMatch(correlationId))
+            throw new ArgumentException("Catalog response correlation ID is invalid.", nameof(correlationId));
+
+        if (!result.Succeeded)
+        {
+            if (result.FailureReason is null || result.Candidates.Count != 0)
+                throw new ArgumentException("Catalog failure response is invalid.", nameof(result));
+
+            return JsonSerializer.Serialize(new WireRuntimeConfigCatalogResponse(
+                "runtimeConfigCatalogResponse",
+                correlationId,
+                false,
+                null,
+                result.FailureReason), SerializerOptions);
+        }
+
+        if (result.FailureReason is not null ||
+            result.Candidates.Count > ProcessModeConfigurationCatalogContract.MaximumCandidates)
+        {
+            throw new ArgumentException("Catalog success response is invalid.", nameof(result));
+        }
+
+        var previousProfileIndex = -1;
+        var previousServerIndex = -1;
+        foreach (var candidate in result.Candidates)
+        {
+            if (!ProcessModeConfigurationReference.TryParseProfile(candidate.ProfileReference, out var profileIndex) ||
+                !ProcessModeConfigurationReference.TryParseServer(candidate.ServerReference, out var serverIndex) ||
+                !candidate.RelationshipValid ||
+                candidate.ProcessModeMatchCount != 1 ||
+                profileIndex < previousProfileIndex ||
+                profileIndex == previousProfileIndex && serverIndex <= previousServerIndex)
+            {
+                throw new ArgumentException("Catalog candidate is invalid.", nameof(result));
+            }
+
+            previousProfileIndex = profileIndex;
+            previousServerIndex = serverIndex;
+        }
+
+        return JsonSerializer.Serialize(new WireRuntimeConfigCatalogResponse(
+            "runtimeConfigCatalogResponse",
+            correlationId,
+            true,
+            result.Candidates,
+            null), SerializerOptions);
+    }
+
+    public static string SerializeRuntimeConfigValidation(
+        string correlationId,
+        ProcessModeConfigurationValidation validation,
+        bool succeeded)
+    {
+        ArgumentNullException.ThrowIfNull(validation);
+        if (!CorrelationIdPattern.IsMatch(correlationId) ||
+            !ProcessModeConfigurationReference.TryParseProfile(validation.ProfileReference, out _) ||
+            !ProcessModeConfigurationReference.TryParseServer(validation.ServerReference, out _) ||
+            validation.ProcessModeMatchCount is < 0 or > 2 ||
+            validation.Valid && (!validation.RelationshipValid || validation.ProcessModeMatchCount != 1) ||
+            !succeeded && validation.Valid)
+        {
+            throw new ArgumentException("Validation response is invalid.");
+        }
+
+        return JsonSerializer.Serialize(new WireRuntimeConfigValidationResponse(
+            "runtimeConfigValidateResponse",
+            correlationId,
+            succeeded,
+            validation.ProfileReference,
+            validation.ServerReference,
+            validation.RelationshipValid,
+            validation.ProcessModeMatchCount,
+            validation.Valid), SerializerOptions);
+    }
+
     private static bool TryParseCommand(string value, out ControlCommand command)
     {
         switch (value)
@@ -166,6 +262,12 @@ public static class ControlProtocol
                 return true;
             case "shutdown":
                 command = ControlCommand.Shutdown;
+                return true;
+            case "runtimeConfigCatalog":
+                command = ControlCommand.RuntimeConfigCatalog;
+                return true;
+            case "runtimeConfigValidate":
+                command = ControlCommand.RuntimeConfigValidate;
                 return true;
             default:
                 command = default;
@@ -255,4 +357,21 @@ public static class ControlProtocol
         string Type,
         string CorrelationId,
         string Challenge);
+
+    private sealed record WireRuntimeConfigCatalogResponse(
+        string Type,
+        string CorrelationId,
+        bool Succeeded,
+        IReadOnlyList<ProcessModeConfigurationCandidate>? Candidates,
+        ProcessModeConfigurationCatalogFailureReason? Reason);
+
+    private sealed record WireRuntimeConfigValidationResponse(
+        string Type,
+        string CorrelationId,
+        bool Succeeded,
+        string ProfileReference,
+        string ServerReference,
+        bool RelationshipValid,
+        int ProcessModeMatchCount,
+        bool Valid);
 }

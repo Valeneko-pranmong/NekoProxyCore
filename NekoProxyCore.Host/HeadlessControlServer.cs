@@ -12,6 +12,7 @@ internal sealed class HeadlessControlServer
     private readonly IProxyRuntime _runtime;
     private readonly ICoreChallengeService _challenges;
     private readonly HostShutdownSignal _shutdown;
+    private readonly IProcessModeConfigurationCatalog _configurationCatalog;
     private readonly ICoreDiagnosticSink _diagnostics;
     private readonly string _pipeName;
 
@@ -21,10 +22,29 @@ internal sealed class HeadlessControlServer
         HostShutdownSignal shutdown,
         string pipeName = PipeName,
         ICoreDiagnosticSink? diagnostics = null)
+        : this(
+            runtime,
+            challenges,
+            shutdown,
+            UnavailableProcessModeConfigurationCatalog.Instance,
+            pipeName,
+            diagnostics)
+    {
+    }
+
+    public HeadlessControlServer(
+        IProxyRuntime runtime,
+        ICoreChallengeService challenges,
+        HostShutdownSignal shutdown,
+        IProcessModeConfigurationCatalog configurationCatalog,
+        string pipeName = PipeName,
+        ICoreDiagnosticSink? diagnostics = null)
     {
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _challenges = challenges ?? throw new ArgumentNullException(nameof(challenges));
         _shutdown = shutdown ?? throw new ArgumentNullException(nameof(shutdown));
+        _configurationCatalog = configurationCatalog ??
+            throw new ArgumentNullException(nameof(configurationCatalog));
         _diagnostics = diagnostics ?? NullCoreDiagnosticSink.Instance;
         _pipeName = string.IsNullOrWhiteSpace(pipeName)
             ? throw new ArgumentException("A pipe name is required.", nameof(pipeName))
@@ -99,6 +119,19 @@ internal sealed class HeadlessControlServer
                         null,
                         _diagnostics),
                     "startResponse"));
+            case ControlCommand.RuntimeConfigCatalog:
+                return Response(ControlProtocol.SerializeRuntimeConfigCatalog(
+                    request.CorrelationId,
+                    GetCatalogSafely()));
+            case ControlCommand.RuntimeConfigValidate:
+                var validation = ValidateSafely(
+                    request.ProfileReference!,
+                    request.ServerReference!,
+                    out var validationSucceeded);
+                return Response(ControlProtocol.SerializeRuntimeConfigValidation(
+                    request.CorrelationId,
+                    validation,
+                    validationSucceeded));
             case ControlCommand.Status:
                 return Response(ControlProtocol.Serialize(ControlResponse.FromStatus(
                     await _runtime.GetStatusAsync(cancellationToken).ConfigureAwait(false),
@@ -123,6 +156,42 @@ internal sealed class HeadlessControlServer
     }
 
     private static DispatchResult Response(string response) => new(response, false);
+
+    private ProcessModeConfigurationCatalogResult GetCatalogSafely()
+    {
+        try
+        {
+            return _configurationCatalog.GetCatalog();
+        }
+        catch
+        {
+            return ProcessModeConfigurationCatalogResult.Failure(
+                ProcessModeConfigurationCatalogFailureReason.CatalogUnavailable);
+        }
+    }
+
+    private ProcessModeConfigurationValidation ValidateSafely(
+        string profileReference,
+        string serverReference,
+        out bool succeeded)
+    {
+        try
+        {
+            var validation = _configurationCatalog.Validate(profileReference, serverReference);
+            succeeded = true;
+            return validation;
+        }
+        catch
+        {
+            succeeded = false;
+            return new ProcessModeConfigurationValidation(
+                profileReference,
+                serverReference,
+                false,
+                0,
+                false);
+        }
+    }
 
     private static async Task<string?> ReadFrameAsync(Stream stream, CancellationToken cancellationToken)
     {
@@ -152,4 +221,18 @@ internal sealed class HeadlessControlServer
     }
 
     private sealed record DispatchResult(string Response, bool RequestHostShutdown);
+
+    private sealed class UnavailableProcessModeConfigurationCatalog : IProcessModeConfigurationCatalog
+    {
+        public static readonly UnavailableProcessModeConfigurationCatalog Instance = new();
+
+        public ProcessModeConfigurationCatalogResult GetCatalog() =>
+            ProcessModeConfigurationCatalogResult.Failure(
+                ProcessModeConfigurationCatalogFailureReason.CatalogUnavailable);
+
+        public ProcessModeConfigurationValidation Validate(
+            string profileReference,
+            string serverReference) =>
+            throw new InvalidOperationException("Runtime configuration catalog is unavailable.");
+    }
 }

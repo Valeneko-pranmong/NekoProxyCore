@@ -35,18 +35,23 @@ internal static class Program
                 // initialization; there is no authorization fallback in the production entry point.
                 var startAuthorizer = ProductionAuthorizationComposition.CreateStartAuthorizer(
                     ProductionPublicKeys.LoadBundled(), null, diagnostics);
+                await NetchRuntimeBootstrap.InitializeAsync(AppContext.BaseDirectory).ConfigureAwait(false);
+                var configurationCatalog = new NetchProcessModeConfigurationCatalog();
                 var statusSink = new NullStatusSink();
                 var engine = new NetchProcessModeEngine(
-                    new NetchProcessModeSessionResolver(diagnostics),
+                    new NetchProcessModeSessionResolver(configurationCatalog, diagnostics),
                     statusSink,
                     diagnostics);
                 var controller = new ProcessModeController(new WindowsProcessResolver(), engine, diagnostics);
                 runtime = new HeadlessRuntimeCoordinator(
                     controller, startAuthorizer, statusSink, null, diagnostics);
                 var server = new HeadlessControlServer(
-                    runtime, new CoreChallengeService(), shutdown, diagnostics: diagnostics);
+                    runtime,
+                    new CoreChallengeService(),
+                    shutdown,
+                    configurationCatalog,
+                    diagnostics: diagnostics);
 
-                await NetchRuntimeBootstrap.InitializeAsync(AppContext.BaseDirectory).ConfigureAwait(false);
                 await server.RunAsync(shutdown.Token).ConfigureAwait(false);
                 await runtime.StopAsync().ConfigureAwait(false);
                 return 0;

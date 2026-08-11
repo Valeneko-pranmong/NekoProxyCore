@@ -1,6 +1,4 @@
-using System.Globalization;
 using NekoProxyCore.Core;
-using Netch;
 using Netch.Controllers;
 using Netch.Models;
 using Netch.Models.Modes.ProcessMode;
@@ -13,12 +11,20 @@ namespace NekoProxyCore.Legacy;
 /// </summary>
 public sealed class NetchProcessModeSessionResolver : ILegacyProcessModeSessionResolver
 {
-    private const string ProfilePrefix = "profile-";
-    private const string ServerPrefix = "server-";
+    private readonly NetchProcessModeConfigurationCatalog _configurationCatalog;
     private readonly ICoreDiagnosticSink _diagnostics;
 
     public NetchProcessModeSessionResolver(ICoreDiagnosticSink? diagnostics = null) =>
-        _diagnostics = diagnostics ?? NullCoreDiagnosticSink.Instance;
+        (_configurationCatalog, _diagnostics) = (
+            new NetchProcessModeConfigurationCatalog(),
+            diagnostics ?? NullCoreDiagnosticSink.Instance);
+
+    public NetchProcessModeSessionResolver(
+        NetchProcessModeConfigurationCatalog configurationCatalog,
+        ICoreDiagnosticSink? diagnostics = null) =>
+        (_configurationCatalog, _diagnostics) = (
+            configurationCatalog ?? throw new ArgumentNullException(nameof(configurationCatalog)),
+            diagnostics ?? NullCoreDiagnosticSink.Instance);
 
     public Task<ILegacyProcessModeSession> ResolveAsync(
         ProxyConfiguration configuration,
@@ -34,75 +40,46 @@ public sealed class NetchProcessModeSessionResolver : ILegacyProcessModeSessionR
         if (configuration.Mode != ProxyModeKind.Process)
             throw new ProxyRuntimeException(ProxyErrorCode.UnsupportedMode, "The requested proxy mode is not supported.");
 
-        var profileIndex = ParseReference(
+        var resolution = _configurationCatalog.Resolve(
             configuration.ProfileReference,
-            ProfilePrefix,
-            "profile",
-            CoreDiagnosticCategory.SessionProfileReferenceInvalid);
-        var serverIndex = ParseReference(
-            configuration.ServerReference,
-            ServerPrefix,
-            "server",
-            CoreDiagnosticCategory.SessionServerReferenceInvalid);
+            configuration.ServerReference);
+        if (!resolution.Valid)
+            ThrowInvalidConfiguration(resolution.Failure);
 
-        var profile = Global.Settings.Profiles.SingleOrDefault(item => item.Index == profileIndex);
-        if (profile == null)
-        {
-            Report(CoreDiagnosticCategory.SessionProfileNotFound);
-            throw new ProxyRuntimeException(ProxyErrorCode.InvalidConfiguration, "The ProcessMode profile could not be resolved.");
-        }
-
-        if (serverIndex >= Global.Settings.Server.Count)
-        {
-            Report(CoreDiagnosticCategory.SessionServerNotFound);
-            throw new ProxyRuntimeException(ProxyErrorCode.InvalidConfiguration, "The ProcessMode server could not be resolved.");
-        }
-
-        var server = Global.Settings.Server[serverIndex];
-        if (!string.Equals(profile.ServerRemark, server.Remark, StringComparison.Ordinal))
-        {
-            Report(CoreDiagnosticCategory.SessionProfileServerMismatch);
-            throw new ProxyRuntimeException(ProxyErrorCode.InvalidConfiguration, "The ProcessMode profile does not match the selected server.");
-        }
-
-        var matchingModes = Global.Modes
-            .OfType<Redirector>()
-            .Where(mode => mode.Remark.Values.Any(value => string.Equals(value, profile.ModeRemark, StringComparison.Ordinal)))
-            .Take(2)
-            .ToArray();
-        if (matchingModes.Length == 0)
-        {
-            Report(CoreDiagnosticCategory.SessionModeNotFound);
-            throw new ProxyRuntimeException(ProxyErrorCode.InvalidConfiguration, "The ProcessMode configuration could not be resolved.");
-        }
-        if (matchingModes.Length > 1)
-        {
-            Report(CoreDiagnosticCategory.SessionModeAmbiguous);
-            throw new ProxyRuntimeException(ProxyErrorCode.InvalidConfiguration, "The ProcessMode configuration could not be resolved.");
-        }
-
-        ILegacyProcessModeSession session = new NetchProcessModeSession(server, matchingModes[0], statusSink);
+        ILegacyProcessModeSession session = new NetchProcessModeSession(
+            resolution.Server!,
+            resolution.Mode!,
+            statusSink);
         Report(CoreDiagnosticCategory.StageCompleted);
         return Task.FromResult(session);
     }
 
-    private int ParseReference(
-        string reference,
-        string prefix,
-        string kind,
-        CoreDiagnosticCategory invalidCategory)
+    private void ThrowInvalidConfiguration(ProcessModeConfigurationResolutionFailure failure)
     {
-        if (!reference.StartsWith(prefix, StringComparison.Ordinal) ||
-            !int.TryParse(reference[prefix.Length..], NumberStyles.None, CultureInfo.InvariantCulture, out var index) ||
-            index < 0)
+        var category = failure switch
         {
-            Report(invalidCategory);
-            throw new ProxyRuntimeException(
-                ProxyErrorCode.InvalidConfiguration,
-                $"The ProcessMode {kind} reference is invalid.");
-        }
+            ProcessModeConfigurationResolutionFailure.ProfileReferenceInvalid =>
+                CoreDiagnosticCategory.SessionProfileReferenceInvalid,
+            ProcessModeConfigurationResolutionFailure.ServerReferenceInvalid =>
+                CoreDiagnosticCategory.SessionServerReferenceInvalid,
+            ProcessModeConfigurationResolutionFailure.ProfileNotFound or
+                ProcessModeConfigurationResolutionFailure.ProfileAmbiguous =>
+                CoreDiagnosticCategory.SessionProfileNotFound,
+            ProcessModeConfigurationResolutionFailure.ServerNotFound =>
+                CoreDiagnosticCategory.SessionServerNotFound,
+            ProcessModeConfigurationResolutionFailure.ProfileServerMismatch =>
+                CoreDiagnosticCategory.SessionProfileServerMismatch,
+            ProcessModeConfigurationResolutionFailure.ModeNotFound =>
+                CoreDiagnosticCategory.SessionModeNotFound,
+            ProcessModeConfigurationResolutionFailure.ModeAmbiguous =>
+                CoreDiagnosticCategory.SessionModeAmbiguous,
+            _ => CoreDiagnosticCategory.SessionModeNotFound
+        };
 
-        return index;
+        Report(category);
+        throw new ProxyRuntimeException(
+            ProxyErrorCode.InvalidConfiguration,
+            "The ProcessMode configuration could not be resolved.");
     }
 
     private void Report(CoreDiagnosticCategory category) =>

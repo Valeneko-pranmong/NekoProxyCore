@@ -71,6 +71,74 @@ public sealed class HeadlessControlServerLifecycleTests
     }
 
     [TestMethod]
+    public async Task RuntimeConfigurationCommandsAreReadOnlyAndLeaveStoppedRuntimeUntouched()
+    {
+        var runtime = new RecordingRuntime(ProxyStatusKind.Stopped);
+        var catalog = new RecordingCatalog();
+        using var shutdown = new HostShutdownSignal();
+        var server = new HeadlessControlServer(
+            runtime,
+            new CoreChallengeService(),
+            shutdown,
+            catalog,
+            UniquePipeName());
+        var runTask = server.RunAsync(shutdown.Token);
+
+        await using var client = await ConnectAsync(server.PipeNameForTesting);
+        var catalogResponse = await ExchangeAsync(client,
+            "{\"type\":\"runtimeConfigCatalog\",\"correlationId\":\"11111111111111111111111111111111\"}");
+        var validationResponse = await ExchangeAsync(client,
+            "{\"type\":\"runtimeConfigValidate\",\"correlationId\":\"22222222222222222222222222222222\",\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\"}");
+
+        StringAssert.Contains(catalogResponse, "\"type\":\"runtimeConfigCatalogResponse\"");
+        StringAssert.Contains(validationResponse, "\"type\":\"runtimeConfigValidateResponse\"");
+        Assert.AreEqual(1, catalog.CatalogCount);
+        Assert.AreEqual(1, catalog.ValidationCount);
+        Assert.AreEqual(0, runtime.StartCount);
+        Assert.AreEqual(0, runtime.StopCount);
+        Assert.AreEqual(0, runtime.StatusCount);
+
+        shutdown.RequestShutdown();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    [TestMethod]
+    public async Task RuntimeConfigurationFailuresUseSafeFixedResponsesWithoutExceptionText()
+    {
+        var runtime = new RecordingRuntime(ProxyStatusKind.Stopped);
+        using var shutdown = new HostShutdownSignal();
+        var server = new HeadlessControlServer(
+            runtime,
+            new CoreChallengeService(),
+            shutdown,
+            new ThrowingCatalog(),
+            UniquePipeName());
+        var runTask = server.RunAsync(shutdown.Token);
+
+        await using var client = await ConnectAsync(server.PipeNameForTesting);
+        var catalogResponse = await ExchangeAsync(client,
+            "{\"type\":\"runtimeConfigCatalog\",\"correlationId\":\"11111111111111111111111111111111\"}");
+        var validationResponse = await ExchangeAsync(client,
+            "{\"type\":\"runtimeConfigValidate\",\"correlationId\":\"22222222222222222222222222222222\",\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\"}");
+
+        Assert.AreEqual(
+            "{\"type\":\"runtimeConfigCatalogResponse\",\"correlationId\":\"11111111111111111111111111111111\",\"succeeded\":false,\"reason\":\"CatalogUnavailable\"}",
+            catalogResponse);
+        Assert.AreEqual(
+            "{\"type\":\"runtimeConfigValidateResponse\",\"correlationId\":\"22222222222222222222222222222222\",\"succeeded\":false,\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\",\"relationshipValid\":false,\"processModeMatchCount\":0,\"valid\":false}",
+            validationResponse);
+        Assert.IsFalse((catalogResponse + validationResponse).Contains(
+            "SECRET_EXCEPTION_TEXT",
+            StringComparison.Ordinal));
+        Assert.AreEqual(0, runtime.StartCount);
+        Assert.AreEqual(0, runtime.StopCount);
+        Assert.AreEqual(0, runtime.StatusCount);
+
+        shutdown.RequestShutdown();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    [TestMethod]
     public async Task FailedRuntimeStopDoesNotAcknowledgeOrCancelHost()
     {
         var runtime = new RecordingRuntime(ProxyStatusKind.Running, stopSucceeds: false);
@@ -165,12 +233,17 @@ public sealed class HeadlessControlServerLifecycleTests
         }
 
         public int StopCount { get; private set; }
+        public int StartCount { get; private set; }
+        public int StatusCount { get; private set; }
 
-        public Task<ProxyResult> StartAsync(ProxyStartRequest request) =>
-            Task.FromResult(ProxyResult.Failure(
+        public Task<ProxyResult> StartAsync(ProxyStartRequest request)
+        {
+            StartCount++;
+            return Task.FromResult(ProxyResult.Failure(
                 _status,
                 request.CorrelationId,
                 new ProxyError(ProxyErrorCode.AuthorizationRequired, "Authorization is required.")));
+        }
 
         public Task<ProxyResult> StopAsync(CancellationToken cancellationToken = default)
         {
@@ -188,7 +261,49 @@ public sealed class HeadlessControlServerLifecycleTests
             return Task.FromResult(ProxyResult.Success(_status, "runtime"));
         }
 
-        public Task<ProxyStatusSnapshot> GetStatusAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(new ProxyStatusSnapshot(_status, "runtime", DateTimeOffset.UtcNow));
+        public Task<ProxyStatusSnapshot> GetStatusAsync(CancellationToken cancellationToken = default)
+        {
+            StatusCount++;
+            return Task.FromResult(new ProxyStatusSnapshot(_status, "runtime", DateTimeOffset.UtcNow));
+        }
+    }
+
+    private sealed class RecordingCatalog : IProcessModeConfigurationCatalog
+    {
+        public int CatalogCount { get; private set; }
+        public int ValidationCount { get; private set; }
+
+        public ProcessModeConfigurationCatalogResult GetCatalog()
+        {
+            CatalogCount++;
+            return ProcessModeConfigurationCatalogResult.Success(new[]
+            {
+                new ProcessModeConfigurationCandidate("profile-0", "server-0", true, 1)
+            });
+        }
+
+        public ProcessModeConfigurationValidation Validate(
+            string profileReference,
+            string serverReference)
+        {
+            ValidationCount++;
+            return new ProcessModeConfigurationValidation(
+                profileReference,
+                serverReference,
+                true,
+                1,
+                true);
+        }
+    }
+
+    private sealed class ThrowingCatalog : IProcessModeConfigurationCatalog
+    {
+        public ProcessModeConfigurationCatalogResult GetCatalog() =>
+            throw new InvalidOperationException("SECRET_EXCEPTION_TEXT");
+
+        public ProcessModeConfigurationValidation Validate(
+            string profileReference,
+            string serverReference) =>
+            throw new InvalidOperationException("SECRET_EXCEPTION_TEXT");
     }
 }
