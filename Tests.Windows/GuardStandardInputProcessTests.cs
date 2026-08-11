@@ -252,7 +252,7 @@ public sealed class GuardStandardInputProcessTests
                 File.Delete(_logPath);
         }
 
-        public TestGuard CreateGuard() => new(ChildExecutableName);
+        public TestGuard CreateGuard() => new(ChildExecutableName, _tempRoot);
 
         public Process StartSentinel() => Process.Start(new ProcessStartInfo
         {
@@ -289,7 +289,6 @@ public sealed class GuardStandardInputProcessTests
         public PlaintextActivityObservation ObservePlaintextActivity() =>
             new(
                 new[] { _tempRoot, AppContext.BaseDirectory },
-                new[] { Path.GetTempPath() },
                 new[] { _logPath });
 
         public async Task StopSafelyAsync(TestGuard guard)
@@ -324,7 +323,6 @@ public sealed class GuardStandardInputProcessTests
 
         public PlaintextActivityObservation(
             IEnumerable<string> strictRoots,
-            IEnumerable<string> markerOnlyRoots,
             IEnumerable<string> allowedCreatedFiles)
         {
             _allowedCreatedFiles = allowedCreatedFiles
@@ -338,8 +336,6 @@ public sealed class GuardStandardInputProcessTests
                 watchers.Add(watcher);
             }
 
-            foreach (var root in markerOnlyRoots.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase))
-                watchers.Add(CreateWatcher(root));
             _watchers = watchers.ToArray();
         }
 
@@ -368,6 +364,8 @@ public sealed class GuardStandardInputProcessTests
             watcher.Created += OnFilesystemActivity;
             watcher.Changed += OnFilesystemActivity;
             watcher.Renamed += OnFilesystemActivity;
+            watcher.Error += (_, args) =>
+                _violations.TryAdd("WATCHER_ERROR:" + args.GetException().GetType().Name, 0);
             watcher.EnableRaisingEvents = true;
             return watcher;
         }
@@ -376,6 +374,9 @@ public sealed class GuardStandardInputProcessTests
         {
             var fullPath = Path.GetFullPath(args.FullPath);
             var name = Path.GetFileName(args.FullPath);
+            if (Directory.Exists(fullPath))
+                return;
+
             if ((_strictWatchers.Contains((FileSystemWatcher)sender) &&
                  args.ChangeType is (WatcherChangeTypes.Created or WatcherChangeTypes.Renamed) &&
                  !_allowedCreatedFiles.Contains(fullPath)) ||
@@ -406,9 +407,12 @@ public sealed class GuardStandardInputProcessTests
                 }
                 catch (UnauthorizedAccessException)
                 {
+                    _violations.TryAdd("UNREADABLE:" + fullPath, 0);
                     return;
                 }
             }
+
+            _violations.TryAdd("READ_RETRIES_EXHAUSTED:" + fullPath, 0);
         }
     }
 
@@ -417,8 +421,10 @@ public sealed class GuardStandardInputProcessTests
         private readonly ConcurrentQueue<string> _diagnosticLines = new();
         private readonly SemaphoreSlim _diagnosticChanged = new(0);
 
-        public TestGuard(string childExecutable) : base(childExecutable)
+        public TestGuard(string childExecutable, string controlledTempRoot) : base(childExecutable)
         {
+            Instance.StartInfo.Environment["TMP"] = controlledTempRoot;
+            Instance.StartInfo.Environment["TEMP"] = controlledTempRoot;
         }
 
         public override string Name => "ProcessChild";
