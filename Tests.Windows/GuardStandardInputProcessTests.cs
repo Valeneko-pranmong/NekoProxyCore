@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
@@ -24,9 +25,9 @@ public sealed class GuardStandardInputProcessTests
     public async Task ExactBytesAndEofReachActualOwnedChildWithoutPlaintextPersistenceAsync()
     {
         using var fixture = new Fixture();
+        using var observation = fixture.ObservePlaintextActivity();
         var input = CreateSyntheticInput(1024 * 1024);
         var expectedHash = Convert.ToHexString(SHA256.HashData(input));
-        var before = fixture.SnapshotForbiddenPlaintextFiles();
         var guard = fixture.CreateGuard();
         var processId = 0;
         try
@@ -35,17 +36,14 @@ public sealed class GuardStandardInputProcessTests
             processId = guard.Instance.Id;
             Assert.IsTrue(await WaitForExitAsync(guard.Instance, TimeSpan.FromSeconds(10)));
             Assert.AreEqual(0, guard.Instance.ExitCode);
-            await guard.StopAsync();
 
-            var diagnostic = await fixture.ReadGuardLogAsync();
+            var diagnostic = await guard.WaitForDiagnosticAsync("EOF_RECEIVED=YES", TimeSpan.FromSeconds(10));
             StringAssert.Contains(diagnostic, $"BYTE_COUNT={input.Length}");
             StringAssert.Contains(diagnostic, $"SHA256={expectedHash}");
             StringAssert.Contains(diagnostic, "EOF_RECEIVED=YES");
             AssertNoSecretMarkers(diagnostic);
-            CollectionAssert.AreEquivalent(
-                before,
-                fixture.SnapshotForbiddenPlaintextFiles(),
-                "The transfer created a forbidden plaintext settings/configuration file.");
+            await guard.StopAsync();
+            await observation.AssertNoPlaintextActivityAsync();
             AssertExactProcessExited(processId);
         }
         finally
@@ -59,8 +57,8 @@ public sealed class GuardStandardInputProcessTests
     public async Task EarlyExitBeforeWriteCompletesFailsClosedAndCleansExactOwnedChildAsync()
     {
         using var fixture = new Fixture();
+        using var observation = fixture.ObservePlaintextActivity();
         var input = CreateSyntheticInput(64 * 1024 * 1024);
-        var before = fixture.SnapshotForbiddenPlaintextFiles();
         var guard = fixture.CreateGuard();
         var transfer = guard.StartWithInputAsync("EARLY_EXIT", input);
         var processId = await CaptureOwnedProcessIdAsync(guard.Instance, transfer);
@@ -70,10 +68,7 @@ public sealed class GuardStandardInputProcessTests
             AssertNoSecretMarkers(exception.ToString());
             AssertExactProcessExited(processId);
             AssertNoSecretMarkers(await fixture.ReadGuardLogAsync());
-            CollectionAssert.AreEquivalent(
-                before,
-                fixture.SnapshotForbiddenPlaintextFiles(),
-                "The failed transfer created a forbidden plaintext settings/configuration file.");
+            await observation.AssertNoPlaintextActivityAsync();
         }
         finally
         {
@@ -86,9 +81,9 @@ public sealed class GuardStandardInputProcessTests
     public async Task TransferFailureCleanupStopsOnlyOwnedChildAndLeavesSentinelAliveAsync()
     {
         using var fixture = new Fixture();
+        using var observation = fixture.ObservePlaintextActivity();
         using var sentinel = fixture.StartSentinel();
         var input = CreateSyntheticInput(64 * 1024 * 1024);
-        var before = fixture.SnapshotForbiddenPlaintextFiles();
         var guard = fixture.CreateGuard();
         var transfer = guard.StartWithInputAsync("FAIL_AFTER_PARTIAL_READ", input);
         var processId = await CaptureOwnedProcessIdAsync(guard.Instance, transfer);
@@ -99,10 +94,7 @@ public sealed class GuardStandardInputProcessTests
             AssertExactProcessExited(processId);
             Assert.IsFalse(sentinel.HasExited, "Cleanup terminated a separately owned sentinel process.");
             AssertNoSecretMarkers(await fixture.ReadGuardLogAsync());
-            CollectionAssert.AreEquivalent(
-                before,
-                fixture.SnapshotForbiddenPlaintextFiles(),
-                "Transfer-failure cleanup created a forbidden plaintext settings/configuration file.");
+            await observation.AssertNoPlaintextActivityAsync();
         }
         finally
         {
@@ -116,6 +108,7 @@ public sealed class GuardStandardInputProcessTests
     public async Task SuccessfulAndFailedTransferDiagnosticsNeverDiscloseSecretMarkersAsync()
     {
         using var fixture = new Fixture();
+        using var observation = fixture.ObservePlaintextActivity();
         var successInput = CreateSyntheticInput(4096);
         var failureInput = CreateSyntheticInput(64 * 1024 * 1024);
         try
@@ -133,11 +126,35 @@ public sealed class GuardStandardInputProcessTests
             AssertNoSecretMarkers(exception.ToString());
             AssertNoSecretMarkers(await fixture.ReadGuardLogAsync());
             await fixture.StopSafelyAsync(failureGuard);
+            await observation.AssertNoPlaintextActivityAsync();
         }
         finally
         {
             CryptographicOperations.ZeroMemory(successInput);
             CryptographicOperations.ZeroMemory(failureInput);
+        }
+    }
+
+    [TestMethod]
+    public async Task FilesystemObservationDetectsTransientDifferentlyNamedPlaintextAsync()
+    {
+        using var fixture = new Fixture();
+        using var observation = fixture.ObservePlaintextActivity();
+        var input = CreateSyntheticInput(4096);
+        var guard = fixture.CreateGuard();
+        try
+        {
+            await guard.StartWithInputAsync("WRITE_TRANSIENT_PLAINTEXT_FILE", input);
+            Assert.IsTrue(await WaitForExitAsync(guard.Instance, TimeSpan.FromSeconds(10)));
+            await guard.StopAsync();
+
+            await Assert.ThrowsExceptionAsync<AssertFailedException>(
+                () => observation.AssertNoPlaintextActivityAsync());
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(input);
+            await fixture.StopSafelyAsync(guard);
         }
     }
 
@@ -214,6 +231,7 @@ public sealed class GuardStandardInputProcessTests
 
     private sealed class Fixture : IDisposable
     {
+        private readonly string _originalCurrentDirectory = Environment.CurrentDirectory;
         private readonly string _tempRoot = Path.Combine(
             Path.GetTempPath(),
             "neko-guard-stdin-test-" + Guid.NewGuid().ToString("N"));
@@ -222,6 +240,7 @@ public sealed class GuardStandardInputProcessTests
 
         public Fixture()
         {
+            Directory.SetCurrentDirectory(AppContext.BaseDirectory);
             Directory.CreateDirectory(_tempRoot);
             Directory.CreateDirectory(Path.Combine(_tempRoot, "data"));
             Directory.CreateDirectory(Path.Combine(_tempRoot, "logging"));
@@ -246,15 +265,17 @@ public sealed class GuardStandardInputProcessTests
             CreateNoWindow = true
         }) ?? throw new AssertFailedException("The test-owned sentinel process did not start.");
 
-        public async Task<string> ReadGuardLogAsync()
+        public async Task<string> ReadGuardLogAsync(string? requiredFragment = null)
         {
-            for (var attempt = 0; attempt < 100; attempt++)
+            for (var attempt = 0; attempt < 1000; attempt++)
             {
                 if (File.Exists(_logPath))
                 {
                     try
                     {
-                        return await File.ReadAllTextAsync(_logPath);
+                        var text = await File.ReadAllTextAsync(_logPath);
+                        if (requiredFragment == null || text.Contains(requiredFragment, StringComparison.Ordinal))
+                            return text;
                     }
                     catch (IOException)
                     {
@@ -265,29 +286,8 @@ public sealed class GuardStandardInputProcessTests
             return string.Empty;
         }
 
-        public string[] SnapshotForbiddenPlaintextFiles()
-        {
-            var roots = new[]
-            {
-                _tempRoot,
-                Path.Combine(_tempRoot, "data"),
-                Path.Combine(_tempRoot, "logging"),
-                AppContext.BaseDirectory,
-                Path.Combine(AppContext.BaseDirectory, "data"),
-                _loggingRoot
-            };
-            return roots
-                .Where(Directory.Exists)
-                .SelectMany(root => Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
-                .Where(path =>
-                    string.Equals(Path.GetFileName(path), "settings.json", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(Path.GetFileName(path), "last.json", StringComparison.OrdinalIgnoreCase) ||
-                    path.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase))
-                .Select(Path.GetFullPath)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-        }
+        public PlaintextActivityObservation ObservePlaintextActivity() =>
+            new(new[] { _tempRoot, AppContext.BaseDirectory }, new[] { _logPath });
 
         public async Task StopSafelyAsync(TestGuard guard)
         {
@@ -307,11 +307,102 @@ public sealed class GuardStandardInputProcessTests
                 Directory.Delete(_tempRoot, recursive: true);
             if (File.Exists(_logPath))
                 File.Delete(_logPath);
+            Directory.SetCurrentDirectory(_originalCurrentDirectory);
+        }
+    }
+
+    private sealed class PlaintextActivityObservation : IDisposable
+    {
+        private readonly ConcurrentDictionary<string, byte> _violations =
+            new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _allowedCreatedFiles;
+        private readonly FileSystemWatcher[] _watchers;
+
+        public PlaintextActivityObservation(IEnumerable<string> roots, IEnumerable<string> allowedCreatedFiles)
+        {
+            _allowedCreatedFiles = allowedCreatedFiles
+                .Select(Path.GetFullPath)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            _watchers = roots
+                .Select(Path.GetFullPath)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(CreateWatcher)
+                .ToArray();
+        }
+
+        public async Task AssertNoPlaintextActivityAsync()
+        {
+            await Task.Delay(100);
+            if (!_violations.IsEmpty)
+                Assert.Fail("Plaintext filesystem activity detected: " +
+                            string.Join(", ", _violations.Keys.OrderBy(path => path)));
+        }
+
+        public void Dispose()
+        {
+            foreach (var watcher in _watchers)
+                watcher.Dispose();
+        }
+
+        private FileSystemWatcher CreateWatcher(string root)
+        {
+            var watcher = new FileSystemWatcher(root)
+            {
+                IncludeSubdirectories = true,
+                Filter = "*",
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size
+            };
+            watcher.Created += OnFilesystemActivity;
+            watcher.Changed += OnFilesystemActivity;
+            watcher.Renamed += OnFilesystemActivity;
+            watcher.EnableRaisingEvents = true;
+            return watcher;
+        }
+
+        private void OnFilesystemActivity(object sender, FileSystemEventArgs args)
+        {
+            var fullPath = Path.GetFullPath(args.FullPath);
+            var name = Path.GetFileName(args.FullPath);
+            if ((args.ChangeType is WatcherChangeTypes.Created or WatcherChangeTypes.Renamed &&
+                 !_allowedCreatedFiles.Contains(fullPath)) ||
+                string.Equals(name, "settings.json", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "last.json", StringComparison.OrdinalIgnoreCase) ||
+                name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase))
+                _violations.TryAdd(fullPath, 0);
+
+            for (var attempt = 0; attempt < 20; attempt++)
+            {
+                try
+                {
+                    using var stream = new FileStream(
+                        fullPath,
+                        FileMode.Open,
+                        FileAccess.Read,
+                        FileShare.ReadWrite | FileShare.Delete);
+                    using var buffer = new MemoryStream();
+                    stream.CopyTo(buffer);
+                    var text = Encoding.UTF8.GetString(buffer.GetBuffer(), 0, checked((int)buffer.Length));
+                    if (SecretMarkers.Any(marker => text.Contains(marker, StringComparison.Ordinal)))
+                        _violations.TryAdd(fullPath, 0);
+                    return;
+                }
+                catch (IOException)
+                {
+                    Thread.Sleep(10);
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    return;
+                }
+            }
         }
     }
 
     private sealed class TestGuard : Guard
     {
+        private readonly ConcurrentQueue<string> _diagnosticLines = new();
+        private readonly SemaphoreSlim _diagnosticChanged = new(0);
+
         public TestGuard(string childExecutable) : base(childExecutable)
         {
         }
@@ -320,5 +411,23 @@ public sealed class GuardStandardInputProcessTests
 
         public Task StartWithInputAsync(string mode, ReadOnlyMemory<byte> input) =>
             StartGuardWithStandardInputAsync(mode, input);
+
+        public async Task<string> WaitForDiagnosticAsync(string requiredFragment, TimeSpan timeout)
+        {
+            using var cancellation = new CancellationTokenSource(timeout);
+            while (true)
+            {
+                var text = string.Join(Environment.NewLine, _diagnosticLines);
+                if (text.Contains(requiredFragment, StringComparison.Ordinal))
+                    return text;
+                await _diagnosticChanged.WaitAsync(cancellation.Token);
+            }
+        }
+
+        protected override void OnReadNewLine(string line)
+        {
+            _diagnosticLines.Enqueue(line);
+            _diagnosticChanged.Release();
+        }
     }
 }

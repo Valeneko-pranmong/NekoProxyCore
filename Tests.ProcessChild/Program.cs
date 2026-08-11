@@ -25,6 +25,8 @@ internal static class Program
                 await ReadPartialAsync().ConfigureAwait(false);
                 await Task.Delay(50).ConfigureAwait(false);
                 return PartialReadExitCode;
+            case "WRITE_TRANSIENT_PLAINTEXT_FILE":
+                return await WriteTransientPlaintextFileAsync().ConfigureAwait(false);
             default:
                 return 64;
         }
@@ -54,5 +56,25 @@ internal static class Program
         var buffer = new byte[1];
         await Console.OpenStandardInput().ReadAsync(buffer).ConfigureAwait(false);
         CryptographicOperations.ZeroMemory(buffer);
+    }
+
+    private static async Task<int> WriteTransientPlaintextFileAsync()
+    {
+        using var buffer = new MemoryStream();
+        await Console.OpenStandardInput().CopyToAsync(buffer).ConfigureAwait(false);
+        var bytes = buffer.ToArray();
+        var path = Path.Combine(Environment.CurrentDirectory, "transient-opaque-config.bin");
+        try
+        {
+            await File.WriteAllBytesAsync(path, bytes).ConfigureAwait(false);
+            await Task.Delay(250).ConfigureAwait(false);
+            return SuccessExitCode;
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+            CryptographicOperations.ZeroMemory(bytes);
+        }
     }
 }
