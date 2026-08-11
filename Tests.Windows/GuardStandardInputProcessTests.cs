@@ -287,7 +287,10 @@ public sealed class GuardStandardInputProcessTests
         }
 
         public PlaintextActivityObservation ObservePlaintextActivity() =>
-            new(new[] { _tempRoot, AppContext.BaseDirectory }, new[] { _logPath });
+            new(
+                new[] { _tempRoot, AppContext.BaseDirectory },
+                new[] { Path.GetTempPath() },
+                new[] { _logPath });
 
         public async Task StopSafelyAsync(TestGuard guard)
         {
@@ -317,17 +320,27 @@ public sealed class GuardStandardInputProcessTests
             new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _allowedCreatedFiles;
         private readonly FileSystemWatcher[] _watchers;
+        private readonly HashSet<FileSystemWatcher> _strictWatchers = new();
 
-        public PlaintextActivityObservation(IEnumerable<string> roots, IEnumerable<string> allowedCreatedFiles)
+        public PlaintextActivityObservation(
+            IEnumerable<string> strictRoots,
+            IEnumerable<string> markerOnlyRoots,
+            IEnumerable<string> allowedCreatedFiles)
         {
             _allowedCreatedFiles = allowedCreatedFiles
                 .Select(Path.GetFullPath)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            _watchers = roots
-                .Select(Path.GetFullPath)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Select(CreateWatcher)
-                .ToArray();
+            var watchers = new List<FileSystemWatcher>();
+            foreach (var root in strictRoots.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var watcher = CreateWatcher(root);
+                _strictWatchers.Add(watcher);
+                watchers.Add(watcher);
+            }
+
+            foreach (var root in markerOnlyRoots.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase))
+                watchers.Add(CreateWatcher(root));
+            _watchers = watchers.ToArray();
         }
 
         public async Task AssertNoPlaintextActivityAsync()
@@ -363,7 +376,8 @@ public sealed class GuardStandardInputProcessTests
         {
             var fullPath = Path.GetFullPath(args.FullPath);
             var name = Path.GetFileName(args.FullPath);
-            if ((args.ChangeType is WatcherChangeTypes.Created or WatcherChangeTypes.Renamed &&
+            if ((_strictWatchers.Contains((FileSystemWatcher)sender) &&
+                 args.ChangeType is (WatcherChangeTypes.Created or WatcherChangeTypes.Renamed) &&
                  !_allowedCreatedFiles.Contains(fullPath)) ||
                 string.Equals(name, "settings.json", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(name, "last.json", StringComparison.OrdinalIgnoreCase) ||

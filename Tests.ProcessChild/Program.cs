@@ -63,7 +63,9 @@ internal static class Program
         using var buffer = new MemoryStream();
         await Console.OpenStandardInput().CopyToAsync(buffer).ConfigureAwait(false);
         var bytes = buffer.ToArray();
-        var path = Path.Combine(Environment.CurrentDirectory, "transient-opaque-config.bin");
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            $"neko-transient-opaque-config-{Environment.ProcessId}.bin");
         try
         {
             await File.WriteAllBytesAsync(path, bytes).ConfigureAwait(false);
