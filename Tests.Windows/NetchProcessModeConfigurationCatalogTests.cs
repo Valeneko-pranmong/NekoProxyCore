@@ -251,7 +251,8 @@ public sealed class NetchProcessModeConfigurationCatalogTests
         var mode = new Redirector
         {
             Remark = new Dictionary<string, string> { ["en"] = "FROZEN_MODE" },
-            FilterTCP = true
+            FilterTCP = true,
+            FullName = "C:\\frozen-mode.txt"
         };
         Global.Settings.Server.Add(server);
         Global.Settings.Profiles.Add(profile);
@@ -260,6 +261,7 @@ public sealed class NetchProcessModeConfigurationCatalogTests
         Global.Settings.Socks5LocalPort = 38123;
         Global.Settings.LocalAddress = "127.0.0.7";
         Global.Settings.STUN_Server = "frozen-stun.example.invalid";
+        Global.Settings.AioDNS.ListenPort = 15353;
         Global.Settings.V2RayConfig.AllowInsecure = false;
         Global.Settings.V2RayConfig.KcpConfig.mtu = 1234;
         Global.Modes.Add(mode);
@@ -270,11 +272,13 @@ public sealed class NetchProcessModeConfigurationCatalogTests
         server.Hostname = "mutated.example.invalid";
         mode.Remark["en"] = "MUTATED_MODE";
         mode.FilterTCP = false;
+        mode.FullName = "C:\\mutated-mode.txt";
         Global.Settings.Redirector.DNSHost = "198.51.100.20:53";
         Global.Settings.Redirector.FilterTCP = false;
         Global.Settings.Socks5LocalPort = 48123;
         Global.Settings.LocalAddress = "0.0.0.0";
         Global.Settings.STUN_Server = "mutated-stun.example.invalid";
+        Global.Settings.AioDNS.ListenPort = 25353;
         Global.Settings.V2RayConfig.AllowInsecure = true;
         Global.Settings.V2RayConfig.KcpConfig.mtu = 4321;
 
@@ -296,6 +300,7 @@ public sealed class NetchProcessModeConfigurationCatalogTests
         Assert.AreNotSame(mode, frozenMode);
         Assert.AreEqual("frozen.example.invalid", frozenServer.Hostname);
         Assert.AreEqual(true, frozenMode.FilterTCP);
+        Assert.AreEqual("C:\\frozen-mode.txt", frozenMode.FullName);
 
         var frozenRuntimeSettings = session.GetType()
             .GetField("_runtimeSettings", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
@@ -317,6 +322,11 @@ public sealed class NetchProcessModeConfigurationCatalogTests
             "frozen-stun.example.invalid",
             frozenRuntimeSettings.GetType().GetProperty("STUN_Server")!
                 .GetValue(frozenRuntimeSettings));
+        var frozenAioDns = frozenRuntimeSettings.GetType().GetProperty("AioDNS")!
+            .GetValue(frozenRuntimeSettings)!;
+        Assert.AreEqual(
+            15353,
+            Convert.ToInt32(frozenAioDns.GetType().GetProperty("ListenPort")!.GetValue(frozenAioDns)));
         var frozenV2Ray = frozenRuntimeSettings.GetType().GetProperty("V2RayConfig")!
             .GetValue(frozenRuntimeSettings)!;
         Assert.AreEqual(false, frozenV2Ray.GetType().GetProperty("AllowInsecure")!.GetValue(frozenV2Ray));

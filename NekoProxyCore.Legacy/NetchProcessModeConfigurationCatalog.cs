@@ -255,11 +255,15 @@ internal sealed class ProcessModeConfigurationSnapshot
             throw new InvalidOperationException("The runtime server snapshot could not be created."));
     }
 
-    private static Redirector CloneRedirector(Redirector mode) =>
-        JsonSerializer.Deserialize<Redirector>(
-            JsonSerializer.Serialize(mode, Global.NewCustomJsonSerializerOptions()),
-            Global.NewCustomJsonSerializerOptions()) ??
-        throw new InvalidOperationException("The runtime mode snapshot could not be created.");
+    private static Redirector CloneRedirector(Redirector mode)
+    {
+        var clone = JsonSerializer.Deserialize<Redirector>(
+                        JsonSerializer.Serialize(mode, Global.NewCustomJsonSerializerOptions()),
+                        Global.NewCustomJsonSerializerOptions()) ??
+                    throw new InvalidOperationException("The runtime mode snapshot could not be created.");
+        clone.FullName = mode.FullName;
+        return clone;
+    }
 
     private static Setting CloneSettings(Setting settings)
     {
@@ -268,8 +272,15 @@ internal sealed class ProcessModeConfigurationSnapshot
         options.Converters.Add(new JsonStringEnumConverter());
         return JsonSerializer.Deserialize<Setting>(
                    JsonSerializer.Serialize(settings, options),
-                   options) ??
-               throw new InvalidOperationException("The runtime settings snapshot could not be created.");
+                   options) is { } clone
+            ? RestoreIgnoredSettings(settings, clone)
+            : throw new InvalidOperationException("The runtime settings snapshot could not be created.");
+    }
+
+    private static Setting RestoreIgnoredSettings(Setting source, Setting clone)
+    {
+        clone.AioDNS.ListenPort = source.AioDNS.ListenPort;
+        return clone;
     }
 }
 
