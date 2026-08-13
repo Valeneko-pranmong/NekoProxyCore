@@ -65,6 +65,20 @@ public sealed class CoreChallengeServiceTests
     }
 
     [TestMethod]
+    public void NewChallengeReplacesThePreviousOutstandingChallenge()
+    {
+        var service = new CoreChallengeService();
+        var first = service.Issue();
+        var second = service.Issue();
+
+        var oldAttempt = service.ConsumeForAttempt(first.Value);
+
+        Assert.AreNotEqual(first.Value, second.Value);
+        Assert.AreEqual(ChallengeConsumption.Invalid, oldAttempt);
+        Assert.AreEqual(ChallengeConsumption.Replayed, service.ConsumeForAttempt(second.Value));
+    }
+
+    [TestMethod]
     public async Task ConcurrentConsumersAcceptOutstandingChallengeAtMostOnce()
     {
         var service = new CoreChallengeService();
