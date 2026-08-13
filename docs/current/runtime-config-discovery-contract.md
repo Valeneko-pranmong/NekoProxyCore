@@ -1,6 +1,6 @@
 # ProcessMode runtime configuration discovery contract
 
-This document defines the local, read-only Launcher handoff added in Phase 2.5. It does not change Control Protocol version 2, the S0-RC1 `start` request, the configuration digest, or permit claims.
+This document defines local, read-only Launcher handoff. It does not change Control Protocol version 2 or Lite permit claims. Runtime configuration remains business data, not cryptographic authorization input.
 
 ## Authoritative runtime resolution
 

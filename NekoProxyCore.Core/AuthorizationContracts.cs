@@ -59,7 +59,6 @@ public sealed class ChallengePermitStartAuthorizer : IProxyStartAuthorizer
         {
             return await _permitVerifier.VerifyAsync(
                     request.Permit,
-                    request.Configuration,
                     request.AdmittedChallenge,
                     request.CancellationToken)
                 .ConfigureAwait(false);

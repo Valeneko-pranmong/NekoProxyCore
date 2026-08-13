@@ -14,7 +14,7 @@ internal sealed class SingleInstanceLease : IDisposable
 
     public static bool TryAcquire(
         out SingleInstanceLease? lease,
-        string mutexName = "Local\\NekoProxyCore.s0-rc1")
+        string mutexName = "Local\\NekoProxyCore.lite-v1")
     {
         if (string.IsNullOrWhiteSpace(mutexName))
             throw new ArgumentException("A mutex name is required.", nameof(mutexName));

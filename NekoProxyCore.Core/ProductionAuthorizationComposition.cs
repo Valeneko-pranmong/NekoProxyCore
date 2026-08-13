@@ -7,10 +7,10 @@ namespace NekoProxyCore.Core;
 /// </summary>
 public static class ProductionAuthorizationComposition
 {
-    public const string ContractId = "NEKO-AUTH-S0";
-    public const string ContractRevision = "s0-rc1";
-    public const string ContractPackageSha256 =
-        "6697351b6b280afc566fedaaa1a6cfe207b1ea1d803c2eb613b4c1a891e192df";
+    public const string ProductionKeyId = "neko-prod-key-2";
+    public const string ContractId = "NEKO-AUTH-LITE";
+    public const string ContractRevision = "lite-v1";
+    public const string ContractPackageSha256 = "";
 
     public static IProxyStartAuthorizer CreateStartAuthorizer(
         IReadOnlyDictionary<string, RSAParameters> publicKeys,
@@ -23,8 +23,8 @@ public static class ProductionAuthorizationComposition
         ICoreDiagnosticSink? diagnostics)
     {
         ArgumentNullException.ThrowIfNull(publicKeys);
-        if (publicKeys.Count == 0)
-            throw new InvalidOperationException("Approved production public keys are unavailable.");
+        if (publicKeys.Count != 1 || !publicKeys.ContainsKey(ProductionKeyId))
+            throw new InvalidOperationException("The Lite production public-key authority is unavailable.");
 
         var trustedKeys = new Dictionary<string, ITrustedPublicKey>(StringComparer.Ordinal);
         try
@@ -44,7 +44,6 @@ public static class ProductionAuthorizationComposition
 
             var verifier = new StrictLaunchPermitVerifier(
                 new ImmutableTrustedPublicKeyResolver(trustedKeys),
-                new S0Rc1CanonicalConfigurationSerializer(),
                 clock ?? SystemTrustedUtcClock.Instance,
                 new InMemoryPermitReplayStore(),
                 diagnostics);

@@ -39,7 +39,6 @@ public sealed class AuthorizationDiagnosticTests
         var rollbackVerifier = fixture.CreateVerifier(clock: rollbackClock, diagnostics: diagnostics);
         Assert.IsNull(await rollbackVerifier.VerifyAsync(
             fixture.CreatePermit(new() { ["jti"] = "rollback-jti-1" }),
-            fixture.Configuration,
             Challenge,
             CancellationToken.None));
         // The current policy is intentionally strict: even a single 100 ns wall-clock step
@@ -53,8 +52,6 @@ public sealed class AuthorizationDiagnosticTests
         await AssertUnavailableAsync(fixture.CreateVerifier(
             clock: new ThrowingClock(), diagnostics: diagnostics), permit, fixture.Configuration);
         await AssertUnavailableAsync(fixture.CreateVerifier(
-            serializer: new ThrowingSerializer(), diagnostics: diagnostics), permit, fixture.Configuration);
-        await AssertUnavailableAsync(fixture.CreateVerifier(
             replayStore: new ThrowingReplayStore(), diagnostics: diagnostics), permit, fixture.Configuration);
 
         var output = writer.ToString();
@@ -63,9 +60,6 @@ public sealed class AuthorizationDiagnosticTests
         StringAssert.Contains(output, "stage=CLOCK_VALIDATE category=AUTH_CLOCK_UNTRUSTED");
         StringAssert.Contains(output, "stage=CLOCK_VALIDATE category=AUTH_CLOCK_ROLLBACK");
         StringAssert.Contains(output, "stage=CLOCK_VALIDATE category=AUTH_CLOCK_EXCEPTION");
-        StringAssert.Contains(
-            output,
-            "stage=CONFIG_DIGEST_VALIDATE category=AUTH_VERIFIER_UNEXPECTED_EXCEPTION");
         StringAssert.Contains(output, "stage=JTI_CONSUME category=AUTH_VERIFIER_UNEXPECTED_EXCEPTION");
         AssertNoSensitiveMarkers(output, fixture.LastCompactPermit);
     }
@@ -185,8 +179,6 @@ public sealed class AuthorizationDiagnosticTests
             new Dictionary<string, object> { ["aud"] = "wrong-audience" },
             new Dictionary<string, object> { ["product"] = "wrong-product" },
             new Dictionary<string, object> { ["scope"] = "wrong-scope" },
-            new Dictionary<string, object> { ["mode"] = "wrong-mode" },
-            new Dictionary<string, object> { ["target_pid"] = 9999 },
             new Dictionary<string, object> { ["challenge"] = new string('B', 43) }
         };
 
@@ -194,23 +186,24 @@ public sealed class AuthorizationDiagnosticTests
         {
             var error = await fixture.CreateVerifier().VerifyAsync(
                 fixture.CreatePermit(overrides),
-                fixture.Configuration,
                 Challenge,
                 CancellationToken.None);
             Assert.AreEqual(ProxyErrorCode.AuthorizationInvalid, error!.Code);
         }
 
-        var configurationError = await fixture.CreateVerifier().VerifyAsync(
-            fixture.CreatePermit(new() { ["cfg"] = new string('0', 64) }),
-            fixture.Configuration,
+        var retiredBindingClaims = await fixture.CreateVerifier().VerifyAsync(
+            fixture.CreatePermit(new()
+            {
+                ["jti"] = "retired-binding-jti"
+            }),
             Challenge,
             CancellationToken.None);
-        Assert.AreEqual(ProxyErrorCode.ConfigurationMismatch, configurationError!.Code);
+        Assert.IsNull(retiredBindingClaims);
 
         var expired = await fixture.CreateVerifier(
                 clock: new FixedClock(DateTimeOffset.FromUnixTimeSeconds(Now + 31)))
             .VerifyAsync(
-                fixture.CreatePermit(), fixture.Configuration, Challenge, CancellationToken.None);
+                fixture.CreatePermit(), Challenge, CancellationToken.None);
         Assert.AreEqual(ProxyErrorCode.AuthorizationExpired, expired!.Code);
     }
 
@@ -241,10 +234,10 @@ public sealed class AuthorizationDiagnosticTests
     private static async Task AssertUnavailableAsync(
         StrictLaunchPermitVerifier verifier,
         SensitivePermit permit,
-        ProxyConfiguration configuration)
+        ProxyConfiguration _)
     {
         var error = await verifier.VerifyAsync(
-            permit, configuration, Challenge, CancellationToken.None);
+            permit, Challenge, CancellationToken.None);
         Assert.AreEqual(ProxyErrorCode.AuthorizationUnavailable, error!.Code);
     }
 
@@ -306,35 +299,24 @@ public sealed class AuthorizationDiagnosticTests
         public StrictLaunchPermitVerifier CreateVerifier(
             ITrustedPublicKeyResolver? resolver = null,
             ITrustedUtcClock? clock = null,
-            ICanonicalConfigurationSerializer? serializer = null,
             IPermitReplayStore? replayStore = null,
             ICoreDiagnosticSink? diagnostics = null) =>
             new(
                 resolver ?? _resolver,
-                serializer ?? new S0Rc1CanonicalConfigurationSerializer(),
                 clock ?? new FixedClock(),
                 replayStore ?? new InMemoryPermitReplayStore(),
                 diagnostics);
 
         public SensitivePermit CreatePermit(Dictionary<string, object>? overrides = null)
         {
-            var configurationBytes = new S0Rc1CanonicalConfigurationSerializer()
-                .Serialize(Configuration)
-                .ToArray();
             var claims = new Dictionary<string, object>
             {
                 ["iss"] = "neko-backend",
                 ["aud"] = "neko-proxy-core",
                 ["sub"] = "synthetic-subject-marker",
-                ["sid"] = "synthetic-session-marker",
-                ["iid"] = "synthetic-installation-marker",
-                ["lid"] = "synthetic-license-marker",
                 ["product"] = "neko-family-proxy",
                 ["scope"] = "proxy:start",
-                ["cfg"] = Convert.ToHexString(SHA256.HashData(configurationBytes)).ToLowerInvariant(),
                 ["challenge"] = Challenge,
-                ["target_pid"] = 4242,
-                ["mode"] = "ProcessMode",
                 ["jti"] = "synthetic-jti-marker",
                 ["iat"] = Now - 1,
                 ["nbf"] = Now - 1,
@@ -410,11 +392,6 @@ public sealed class AuthorizationDiagnosticTests
     {
     }
 
-    private sealed class ThrowingSerializer : ICanonicalConfigurationSerializer
-    {
-        public ReadOnlyMemory<byte> Serialize(ProxyConfiguration configuration) =>
-            throw new InvalidOperationException("private-key-marker");
-    }
 
     private sealed class ThrowingReplayStore : IPermitReplayStore
     {
@@ -426,7 +403,6 @@ public sealed class AuthorizationDiagnosticTests
     {
         public Task<ProxyError?> VerifyAsync(
             SensitivePermit permit,
-            ProxyConfiguration configuration,
             string challenge,
             CancellationToken cancellationToken) =>
             throw new InvalidOperationException("permit-secret-marker jwt-secret-marker");

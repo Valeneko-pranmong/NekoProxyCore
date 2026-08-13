@@ -8,6 +8,7 @@
 | เอกสาร | ใช้เมื่อ |
 |---|---|
 | [`current/core-release-handoff.md`](current/core-release-handoff.md) | ตรวจสถานะ Core, release bundle, security gates และสิ่งที่ส่งให้ Launcher |
+| [`current/neko-auth-lite-core-contract.md`](current/neko-auth-lite-core-contract.md) | NEKO-AUTH-LITE/lite-v1 Core permit, challenge, replay และ launch-boundary contract |
 | [`../README.md`](../README.md) | เริ่มต้นใช้งาน repository, build/test/publish และดูโครงสร้าง source |
 
 `docs/current/` ต้องมีเฉพาะเอกสารที่ยังเป็น source of truth ปัจจุบัน เมื่อเอกสารถูกแทนที่

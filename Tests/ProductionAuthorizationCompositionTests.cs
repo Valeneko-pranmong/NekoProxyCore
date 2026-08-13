@@ -73,12 +73,8 @@ public sealed class ProductionAuthorizationCompositionTests
     [TestMethod]
     public async Task CompositionBuildsStrictPermitAuthorizerFromApprovedPublicKeys()
     {
-        using var signer = RSA.Create(2048);
         var authorizer = ProductionAuthorizationComposition.CreateStartAuthorizer(
-            new Dictionary<string, RSAParameters>
-            {
-                ["production-s0-rs256-01"] = signer.ExportParameters(false)
-            });
+            ProductionPublicKeys.LoadBundled());
         var request = new ProxyStartRequest(new ProxyConfiguration(
             ProxyModeKind.Process,
             "pso2.exe",
@@ -101,6 +97,19 @@ public sealed class ProductionAuthorizationCompositionTests
     }
 
     [TestMethod]
+    public void CompositionRejectsANonCanonicalProductionKeyId()
+    {
+        using var signer = RSA.Create(3072);
+
+        Assert.ThrowsException<InvalidOperationException>(() =>
+            ProductionAuthorizationComposition.CreateStartAuthorizer(
+                new Dictionary<string, RSAParameters>
+                {
+                    ["retired-key"] = signer.ExportParameters(false)
+                }));
+    }
+
+    [TestMethod]
     public void HostLoadsProductionTrustBeforeConstructingTheEngine()
     {
         var source = File.ReadAllText(Path.Combine(
@@ -116,13 +125,27 @@ public sealed class ProductionAuthorizationCompositionTests
     }
 
     [TestMethod]
+    public void ProductionHostRoutesEngineThroughAuthorizedRuntimeBoundary()
+    {
+        var source = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "NekoProxyCore.Host",
+            "Program.cs"));
+
+        Assert.IsTrue(source.Contains("CreateStartAuthorizer(", StringComparison.Ordinal));
+        Assert.IsTrue(source.Contains("new HeadlessRuntimeCoordinator(", StringComparison.Ordinal));
+        Assert.IsTrue(source.Contains("controller, startAuthorizer", StringComparison.Ordinal));
+        Assert.IsTrue(source.IndexOf("new HeadlessRuntimeCoordinator(", StringComparison.Ordinal) <
+                      source.IndexOf("new HeadlessControlServer(", StringComparison.Ordinal));
+        Assert.IsFalse(source.Contains("engine.StartAsync", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void CompositionPinsTheAcceptedLaunchContractIdentity()
     {
-        Assert.AreEqual("NEKO-AUTH-S0", ProductionAuthorizationComposition.ContractId);
-        Assert.AreEqual("s0-rc1", ProductionAuthorizationComposition.ContractRevision);
-        Assert.AreEqual(
-            "6697351b6b280afc566fedaaa1a6cfe207b1ea1d803c2eb613b4c1a891e192df",
-            ProductionAuthorizationComposition.ContractPackageSha256);
+        Assert.AreEqual("NEKO-AUTH-LITE", ProductionAuthorizationComposition.ContractId);
+        Assert.AreEqual("lite-v1", ProductionAuthorizationComposition.ContractRevision);
+        Assert.AreEqual(string.Empty, ProductionAuthorizationComposition.ContractPackageSha256);
     }
 
     private static string Base64Url(byte[] value) =>

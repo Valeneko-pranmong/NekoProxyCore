@@ -54,13 +54,13 @@ public interface ITrustedPublicKeyResolver
     bool TryResolve(string keyId, out ITrustedPublicKey? key);
 }
 
-/// <summary>Canonicalization seam. Production bytes remain unavailable until the shared S0 fixture is frozen.</summary>
+/// <summary>Historical S0 canonicalization seam. Not used by Lite production authorization.</summary>
 public interface ICanonicalConfigurationSerializer
 {
     ReadOnlyMemory<byte> Serialize(ProxyConfiguration configuration);
 }
 
-/// <summary>Exact canonical configuration bytes frozen by NEKO-AUTH-S0/s0-rc1.</summary>
+/// <summary>Historical S0 canonical configuration serializer retained for archive tests.</summary>
 public sealed class S0Rc1CanonicalConfigurationSerializer : ICanonicalConfigurationSerializer
 {
     private static readonly System.Text.RegularExpressions.Regex ProfileReferencePattern =
@@ -95,7 +95,6 @@ public interface IPermitVerifier
 {
     Task<ProxyError?> VerifyAsync(
         SensitivePermit permit,
-        ProxyConfiguration configuration,
         string challenge,
         CancellationToken cancellationToken);
 }

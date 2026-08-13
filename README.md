@@ -18,10 +18,10 @@ Headless Windows proxy Core สำหรับ Neko Launcher โดยสืบ�
 ## สถานะปัจจุบัน
 
 - Canonical `Release`/`win-x64` publish จาก source ผ่านแล้ว
-- Named Pipe `NekoProxyCore.s0-rc1`, Protocol v2 และ fail-closed lifecycle ผ่านการตรวจ
-- Production authorization ยังคง fail closed ด้วย `AuthorizationRequired` จนกว่า
-  Security/Release จะส่ง approved public-key allow-list, trusted-clock composition และ
-  production signing material
+- NEKO-AUTH-LITE/lite-v1 verifier, Named Pipe `NekoProxyCoreControl`, Protocol v2 และ fail-closed lifecycle ผ่านการตรวจ
+- Lite source/test preparation complete; hosted cutover, production artifact และ cross-component E2E ยังไม่ทำ
+- Production authorization remains fail closed on invalid/missing permit; Core holds public-key authority only
+
 - Runtime bundle ส่งให้ทีม Launcher แยกจาก Git ที่
   `release/NekoProxyCore-win-x64.zip` พร้อม manifest, provenance, verification report และ
   `SHA256SUMS.txt`

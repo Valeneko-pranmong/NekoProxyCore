@@ -74,7 +74,7 @@ public sealed class InMemoryPermitReplayStore : IPermitReplayStore
     }
 }
 
-/// <summary>Strict NEKO-AUTH-S0/s0-rc1 compact JWT RS256 verifier.</summary>
+/// <summary>Strict NEKO-AUTH-LITE/lite-v1 compact JWT RS256 verifier.</summary>
 public sealed class StrictLaunchPermitVerifier : IPermitVerifier
 {
     private const int MaximumPermitLength = 4096;
@@ -84,12 +84,14 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
     private static readonly HashSet<string> HeaderNames = new(StringComparer.Ordinal) { "alg", "typ", "kid" };
     private static readonly HashSet<string> ClaimNames = new(StringComparer.Ordinal)
     {
-        "iss", "aud", "sub", "sid", "iid", "lid", "product", "scope", "cfg", "challenge",
-        "target_pid", "mode", "jti", "iat", "nbf", "exp"
+        "iss", "aud", "sub", "product", "scope", "challenge", "jti", "iat", "nbf", "exp"
+    };
+    private static readonly HashSet<string> RequiredClaimNames = new(StringComparer.Ordinal)
+    {
+        "iss", "aud", "sub", "product", "scope", "challenge", "jti", "iat", "exp"
     };
 
     private readonly ITrustedPublicKeyResolver _keyResolver;
-    private readonly ICanonicalConfigurationSerializer _configurationSerializer;
     private readonly ITrustedUtcClock _clock;
     private readonly IPermitReplayStore _replayStore;
     private readonly ICoreDiagnosticSink _diagnostics;
@@ -98,22 +100,19 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
 
     public StrictLaunchPermitVerifier(
         ITrustedPublicKeyResolver keyResolver,
-        ICanonicalConfigurationSerializer configurationSerializer,
         ITrustedUtcClock clock,
         IPermitReplayStore replayStore)
-        : this(keyResolver, configurationSerializer, clock, replayStore, null)
+        : this(keyResolver, clock, replayStore, null)
     {
     }
 
     public StrictLaunchPermitVerifier(
         ITrustedPublicKeyResolver keyResolver,
-        ICanonicalConfigurationSerializer configurationSerializer,
         ITrustedUtcClock clock,
         IPermitReplayStore replayStore,
         ICoreDiagnosticSink? diagnostics)
     {
         _keyResolver = keyResolver ?? throw new ArgumentNullException(nameof(keyResolver));
-        _configurationSerializer = configurationSerializer ?? throw new ArgumentNullException(nameof(configurationSerializer));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _replayStore = replayStore ?? throw new ArgumentNullException(nameof(replayStore));
         _diagnostics = diagnostics ?? NullCoreDiagnosticSink.Instance;
@@ -121,12 +120,10 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
 
     public Task<ProxyError?> VerifyAsync(
         SensitivePermit permit,
-        ProxyConfiguration configuration,
         string challenge,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(permit);
-        ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(challenge);
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -134,7 +131,7 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
         try
         {
             return Task.FromResult(Verify(
-                permit, configuration, challenge, cancellationToken, ref currentStage));
+                permit, challenge, cancellationToken, ref currentStage));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -150,7 +147,6 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
 
     private ProxyError? Verify(
         SensitivePermit permit,
-        ProxyConfiguration configuration,
         string challenge,
         CancellationToken cancellationToken,
         ref CoreDiagnosticStage currentStage)
@@ -164,8 +160,8 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
             !TryDecodeBase64Url(segments[0], out var headerBytes) ||
             !TryDecodeBase64Url(segments[1], out var payloadBytes) ||
             !TryDecodeBase64Url(segments[2], out var signatureBytes) ||
-            !TryReadObject(headerBytes, HeaderNames, out var header) ||
-            !TryReadObject(payloadBytes, ClaimNames, out var claims) ||
+            !TryReadObject(headerBytes, HeaderNames, HeaderNames, out var header) ||
+            !TryReadObject(payloadBytes, ClaimNames, RequiredClaimNames, out var claims) ||
             !TryGetString(header, "alg", out var algorithm) || algorithm != "RS256" ||
             !TryGetString(header, "typ", out var type) || type != "neko-launch+jwt" ||
             !TryGetBoundedAscii(header, "kid", 128, out var keyId))
@@ -217,32 +213,29 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
             !HasExactString(claims, "aud", "neko-proxy-core") ||
             !HasExactString(claims, "product", "neko-family-proxy") ||
             !HasExactString(claims, "scope", "proxy:start") ||
-            !HasExactString(claims, "mode", "ProcessMode") ||
             !TryGetBoundedAscii(claims, "iss", 128, out _) ||
             !TryGetBoundedAscii(claims, "aud", 128, out _) ||
             !TryGetBoundedAscii(claims, "sub", 128, out _) ||
-            !TryGetBoundedAscii(claims, "sid", 128, out _) ||
-            !TryGetBoundedAscii(claims, "iid", 128, out _) ||
-            !TryGetBoundedAscii(claims, "lid", 128, out _) ||
             !TryGetBoundedAscii(claims, "product", 128, out _) ||
             !TryGetBoundedAscii(claims, "scope", 128, out _) ||
-            !TryGetBoundedAscii(claims, "mode", 128, out _) ||
             !TryGetBoundedAscii(claims, "jti", 64, out var permitId) ||
-            !TryGetBoundedAscii(claims, "cfg", 128, out var configurationDigest) ||
-            !IsLowerHexSha256(configurationDigest) ||
             !TryGetBoundedAscii(claims, "challenge", 128, out var permitChallenge) ||
             !IsChallenge(permitChallenge) ||
-            !TryGetUInt32(claims, "target_pid", out var targetPid) ||
             !TryGetInt64(claims, "iat", out var issuedAt) ||
-            !TryGetInt64(claims, "nbf", out var notBefore) ||
             !TryGetInt64(claims, "exp", out var expiresAt) ||
-            notBefore != issuedAt ||
             issuedAt > long.MaxValue - LifetimeSeconds ||
             expiresAt != issuedAt + LifetimeSeconds)
         {
             return Invalid();
         }
         ReportCompleted(currentStage);
+
+        var notBefore = issuedAt;
+        if (claims.ContainsKey("nbf") &&
+            (!TryGetInt64(claims, "nbf", out notBefore) || notBefore != issuedAt))
+        {
+            return Invalid();
+        }
 
         currentStage = CoreDiagnosticStage.ClockValidate;
         long now;
@@ -279,28 +272,8 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
             expiresAt <= now - ClockSkewSeconds)
             return Error(ProxyErrorCode.AuthorizationExpired, "Online authorization expired.");
 
-        currentStage = CoreDiagnosticStage.ConfigurationDigestValidate;
-        byte[] canonicalConfiguration;
-        try
-        {
-            canonicalConfiguration = _configurationSerializer.Serialize(configuration).ToArray();
-        }
-        catch (ArgumentException)
-        {
-            return Error(ProxyErrorCode.ConfigurationMismatch, "Proxy configuration does not match authorization.");
-        }
-
-        var actualDigest = SHA256.HashData(canonicalConfiguration);
-        if (!TryDecodeLowerHex(configurationDigest, out var expectedDigest) ||
-            !CryptographicOperations.FixedTimeEquals(actualDigest, expectedDigest))
-        {
-            return Error(ProxyErrorCode.ConfigurationMismatch, "Proxy configuration does not match authorization.");
-        }
-        ReportCompleted(currentStage);
-
         currentStage = CoreDiagnosticStage.TargetChallengeBind;
-        if (configuration.TargetPid != targetPid ||
-            !FixedTimeAsciiEquals(permitChallenge, challenge))
+        if (!FixedTimeAsciiEquals(permitChallenge, challenge))
         {
             return Invalid();
         }
@@ -318,6 +291,7 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
     private static bool TryReadObject(
         byte[] utf8,
         HashSet<string> allowedNames,
+        HashSet<string> requiredNames,
         out Dictionary<string, JsonElement> values)
     {
         values = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
@@ -345,7 +319,7 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
             }
 
             return reader.TokenType == JsonTokenType.EndObject && !reader.Read() &&
-                   values.Count == allowedNames.Count;
+                   requiredNames.All(values.ContainsKey);
         }
         catch (JsonException)
         {
@@ -420,17 +394,6 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
                element.TryGetInt64(out value);
     }
 
-    private static bool TryGetUInt32(
-        IReadOnlyDictionary<string, JsonElement> values,
-        string name,
-        out uint value)
-    {
-        value = default;
-        return values.TryGetValue(name, out var element) &&
-               element.ValueKind == JsonValueKind.Number &&
-               IsJsonInteger(element) &&
-               element.TryGetUInt32(out value) && value > 0;
-    }
 
     private static bool IsJsonInteger(JsonElement element)
     {
@@ -442,24 +405,6 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
         return start < raw.Length && raw[start..].All(character => character is >= '0' and <= '9');
     }
 
-    private static bool IsLowerHexSha256(string value) =>
-        value.Length == 64 && value.All(character => character is >= '0' and <= '9' or >= 'a' and <= 'f');
-
-    private static bool TryDecodeLowerHex(string value, out byte[] bytes)
-    {
-        bytes = Array.Empty<byte>();
-        if (!IsLowerHexSha256(value))
-            return false;
-        try
-        {
-            bytes = Convert.FromHexString(value);
-            return true;
-        }
-        catch (FormatException)
-        {
-            return false;
-        }
-    }
 
     private static bool IsChallenge(string value) =>
         value.Length == 43 && value.All(character =>

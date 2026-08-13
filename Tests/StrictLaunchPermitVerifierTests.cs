@@ -18,14 +18,39 @@ public sealed class StrictLaunchPermitVerifierTests
     private const string Challenge = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
     [TestMethod]
+    public async Task ValidLitePermitWithoutRetiredS0ClaimsIsAccepted()
+    {
+        using var fixture = PermitFixture.Create();
+        var permit = fixture.CreatePermitWithoutClaims(
+            "sid", "iid", "lid", "cfg", "target_pid", "mode");
+
+        var error = await fixture.CreateVerifier().VerifyAsync(
+            permit, Challenge, CancellationToken.None);
+
+        Assert.IsNull(error);
+    }
+
+    [TestMethod]
+    public async Task MissingRequiredLiteClaimIsRejected()
+    {
+        using var fixture = PermitFixture.Create();
+        var permit = fixture.CreatePermitWithoutClaims("scope");
+
+        var error = await fixture.CreateVerifier().VerifyAsync(
+            permit, Challenge, CancellationToken.None);
+
+        Assert.AreEqual(ProxyErrorCode.AuthorizationInvalid, error!.Code);
+    }
+
+    [TestMethod]
     public async Task ValidS0Rc1PermitIsAcceptedExactlyOnce()
     {
         using var fixture = PermitFixture.Create();
         var verifier = fixture.CreateVerifier();
         var permit = fixture.CreatePermit();
 
-        var first = await verifier.VerifyAsync(permit, fixture.Configuration, Challenge, CancellationToken.None);
-        var replay = await verifier.VerifyAsync(permit, fixture.Configuration, Challenge, CancellationToken.None);
+        var first = await verifier.VerifyAsync(permit, Challenge, CancellationToken.None);
+        var replay = await verifier.VerifyAsync(permit, Challenge, CancellationToken.None);
 
         Assert.IsNull(first);
         Assert.AreEqual(ProxyErrorCode.AuthorizationReplay, replay!.Code);
@@ -39,23 +64,23 @@ public sealed class StrictLaunchPermitVerifierTests
         var permit = fixture.CreatePermit();
 
         var results = await Task.WhenAll(
-            verifier.VerifyAsync(permit, fixture.Configuration, Challenge, CancellationToken.None),
-            verifier.VerifyAsync(permit, fixture.Configuration, Challenge, CancellationToken.None));
+            verifier.VerifyAsync(permit, Challenge, CancellationToken.None),
+            verifier.VerifyAsync(permit, Challenge, CancellationToken.None));
 
         Assert.AreEqual(1, Array.FindAll(results, result => result is null).Length);
         Assert.AreEqual(1, Array.FindAll(results, result => result?.Code == ProxyErrorCode.AuthorizationReplay).Length);
     }
 
     [TestMethod]
-    public async Task ConfigurationDigestMismatchUsesFrozenTypedError()
+    public async Task RetiredConfigurationDigestDoesNotBlockLiteAuthorization()
     {
         using var fixture = PermitFixture.Create();
         var verifier = fixture.CreateVerifier();
-        var permit = fixture.CreatePermit(claimOverrides: new() { ["cfg"] = new string('0', 64) });
+        var permit = fixture.CreatePermit();
 
-        var error = await verifier.VerifyAsync(permit, fixture.Configuration, Challenge, CancellationToken.None);
+        var error = await verifier.VerifyAsync(permit, Challenge, CancellationToken.None);
 
-        Assert.AreEqual(ProxyErrorCode.ConfigurationMismatch, error!.Code);
+        Assert.IsNull(error);
     }
 
     [TestMethod]
@@ -67,8 +92,8 @@ public sealed class StrictLaunchPermitVerifierTests
         var unavailable = fixture.CreateVerifier(new UnavailableResolver());
         var permit = fixture.CreatePermit();
 
-        var unknownError = await unknown.VerifyAsync(permit, fixture.Configuration, Challenge, CancellationToken.None);
-        var unavailableError = await unavailable.VerifyAsync(permit, fixture.Configuration, Challenge, CancellationToken.None);
+        var unknownError = await unknown.VerifyAsync(permit, Challenge, CancellationToken.None);
+        var unavailableError = await unavailable.VerifyAsync(permit, Challenge, CancellationToken.None);
 
         Assert.AreEqual(ProxyErrorCode.AuthorizationInvalid, unknownError!.Code);
         Assert.AreEqual(ProxyErrorCode.AuthorizationUnavailable, unavailableError!.Code);
@@ -82,12 +107,10 @@ public sealed class StrictLaunchPermitVerifierTests
 
         var retired = await verifier.VerifyAsync(
             fixture.CreatePermit(keyId: "neko-prod-key-1"),
-            fixture.Configuration,
             Challenge,
             CancellationToken.None);
         var unknown = await verifier.VerifyAsync(
             fixture.CreatePermit(keyId: "unknown-key"),
-            fixture.Configuration,
             Challenge,
             CancellationToken.None);
 
@@ -105,7 +128,7 @@ public sealed class StrictLaunchPermitVerifierTests
             new Dictionary<string, ITrustedPublicKey> { [Kid] = unrelatedPublicKey }));
 
         var error = await verifier.VerifyAsync(
-            fixture.CreatePermit(), fixture.Configuration, Challenge, CancellationToken.None);
+            fixture.CreatePermit(), Challenge, CancellationToken.None);
 
         Assert.AreEqual(ProxyErrorCode.AuthorizationInvalid, error!.Code);
     }
@@ -117,7 +140,6 @@ public sealed class StrictLaunchPermitVerifierTests
 
         var error = await fixture.CreateVerifier().VerifyAsync(
             fixture.CreatePermit(algorithm: "PS256"),
-            fixture.Configuration,
             Challenge,
             CancellationToken.None);
 
@@ -134,16 +156,14 @@ public sealed class StrictLaunchPermitVerifierTests
         var rollbackVerifier = fixture.CreateVerifier(rollbackClock);
 
         var untrustedError = await untrusted.VerifyAsync(
-            fixture.CreatePermit(), fixture.Configuration, Challenge, CancellationToken.None);
+            fixture.CreatePermit(), Challenge, CancellationToken.None);
         var first = await rollbackVerifier.VerifyAsync(
             fixture.CreatePermit(new() { ["jti"] = "clock-jti-1" }),
-            fixture.Configuration,
             Challenge,
             CancellationToken.None);
         rollbackClock.UtcNow = rollbackClock.UtcNow.AddSeconds(-1);
         var rollbackError = await rollbackVerifier.VerifyAsync(
             fixture.CreatePermit(new() { ["jti"] = "clock-jti-2" }),
-            fixture.Configuration,
             Challenge,
             CancellationToken.None);
 
@@ -174,9 +194,9 @@ public sealed class StrictLaunchPermitVerifierTests
         });
 
         var expiredError = await expired.VerifyAsync(
-            fixture.CreatePermit(), fixture.Configuration, Challenge, CancellationToken.None);
+            fixture.CreatePermit(), Challenge, CancellationToken.None);
         var futureError = await fixture.CreateVerifier().VerifyAsync(
-            futurePermit, fixture.Configuration, Challenge, CancellationToken.None);
+            futurePermit, Challenge, CancellationToken.None);
 
         Assert.AreEqual(ProxyErrorCode.AuthorizationExpired, expiredError!.Code);
         Assert.AreEqual(ProxyErrorCode.AuthorizationExpired, futureError!.Code);
@@ -191,7 +211,7 @@ public sealed class StrictLaunchPermitVerifierTests
         var permit = fixture.SignRawPayload(duplicatePayload);
 
         var error = await fixture.CreateVerifier().VerifyAsync(
-            permit, fixture.Configuration, Challenge, CancellationToken.None);
+            permit, Challenge, CancellationToken.None);
 
         Assert.AreEqual(ProxyErrorCode.AuthorizationInvalid, error!.Code);
     }
@@ -208,9 +228,9 @@ public sealed class StrictLaunchPermitVerifierTests
             StringComparison.Ordinal);
 
         var whitespaceError = await fixture.CreateVerifier().VerifyAsync(
-            whitespaceIdentifier, fixture.Configuration, Challenge, CancellationToken.None);
+            whitespaceIdentifier, Challenge, CancellationToken.None);
         var numericDateError = await fixture.CreateVerifier().VerifyAsync(
-            fixture.SignRawPayload(nonIntegerPayload), fixture.Configuration, Challenge, CancellationToken.None);
+            fixture.SignRawPayload(nonIntegerPayload), Challenge, CancellationToken.None);
 
         Assert.AreEqual(ProxyErrorCode.AuthorizationInvalid, whitespaceError!.Code);
         Assert.AreEqual(ProxyErrorCode.AuthorizationInvalid, numericDateError!.Code);
@@ -222,11 +242,11 @@ public sealed class StrictLaunchPermitVerifierTests
         using var fixture = PermitFixture.Create();
         var verifier = fixture.CreateVerifier();
         var wrongChallenge = await verifier.VerifyAsync(
-            fixture.CreatePermit(), fixture.Configuration,
+            fixture.CreatePermit(),
             "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", CancellationToken.None);
         Assert.IsTrue(SensitivePermit.TryCreate("a.b.c", 4096, out var malformed));
         var badSignature = await verifier.VerifyAsync(
-            malformed!, fixture.Configuration, Challenge, CancellationToken.None);
+            malformed!, Challenge, CancellationToken.None);
 
         Assert.AreEqual(ProxyErrorCode.AuthorizationInvalid, wrongChallenge!.Code);
         Assert.AreEqual(ProxyErrorCode.AuthorizationInvalid, badSignature!.Code);
@@ -268,14 +288,13 @@ public sealed class StrictLaunchPermitVerifierTests
 
         public ProxyConfiguration Configuration { get; }
 
-        public static PermitFixture Create() => new(RSA.Create(2048));
+        public static PermitFixture Create() => new(RSA.Create(3072));
 
         public StrictLaunchPermitVerifier CreateVerifier(
             ITrustedPublicKeyResolver? resolver = null,
             ITrustedUtcClock? clock = null) =>
             new(
                 resolver ?? _resolver,
-                new S0Rc1CanonicalConfigurationSerializer(),
                 clock ?? new MutableTrustedClock(DateTimeOffset.FromUnixTimeSeconds(Now)),
                 new InMemoryPermitReplayStore());
 
@@ -294,6 +313,14 @@ public sealed class StrictLaunchPermitVerifierTests
             }
 
             return SignRawPayload(JsonSerializer.Serialize(claims), keyId, algorithm);
+        }
+
+        public SensitivePermit CreatePermitWithoutClaims(params string[] claimNames)
+        {
+            var claims = CreateClaims();
+            foreach (var claimName in claimNames)
+                claims.Remove(claimName);
+            return SignRawPayload(JsonSerializer.Serialize(claims));
         }
 
         public string CreatePayloadJson() => JsonSerializer.Serialize(CreateClaims());
@@ -325,15 +352,9 @@ public sealed class StrictLaunchPermitVerifierTests
             ["iss"] = "neko-backend",
             ["aud"] = "neko-proxy-core",
             ["sub"] = "synthetic-subject",
-            ["sid"] = "synthetic-session",
-            ["iid"] = "synthetic-installation",
-            ["lid"] = "synthetic-entitlement",
             ["product"] = "neko-family-proxy",
             ["scope"] = "proxy:start",
-            ["cfg"] = "92ac70d0f9b100ba664f2bb205b2c042bc1058f779e94e759822d906ea880871",
             ["challenge"] = Challenge,
-            ["target_pid"] = 4242,
-            ["mode"] = "ProcessMode",
             ["jti"] = "synthetic-jti-0001",
             ["iat"] = 2_000_000_000,
             ["nbf"] = 2_000_000_000,

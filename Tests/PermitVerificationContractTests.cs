@@ -181,7 +181,6 @@ public sealed class PermitVerificationContractTests
 
         public Task<ProxyError?> VerifyAsync(
             SensitivePermit permit,
-            ProxyConfiguration configuration,
             string challenge,
             CancellationToken cancellationToken)
         {
