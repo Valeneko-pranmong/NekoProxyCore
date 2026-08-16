@@ -81,6 +81,7 @@ public sealed class LegacyRuntimeBootstrapContractTests
         Assert.IsFalse(source.Contains("Constants.TempConfig", StringComparison.Ordinal));
         Assert.IsFalse(source.Contains("FileStream", StringComparison.Ordinal));
         Assert.IsTrue(source.Contains("StartGuardWithStandardInputAsync", StringComparison.Ordinal));
+        Assert.IsTrue(source.Contains("\"run -format=json\"", StringComparison.Ordinal));
     }
 
     [TestMethod]

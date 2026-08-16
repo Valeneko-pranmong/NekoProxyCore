@@ -32,7 +32,7 @@ public class V2rayController : Guard, IServerController
             Global.NewCustomJsonSerializerOptions());
         try
         {
-            await StartGuardWithStandardInputAsync("run -c stdin:", config);
+            await StartGuardWithStandardInputAsync("run -format=json", config);
         }
         finally
         {
