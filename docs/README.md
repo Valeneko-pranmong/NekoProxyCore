@@ -8,6 +8,7 @@
 | เอกสาร | ใช้เมื่อ |
 |---|---|
 | [`current/core-release-handoff.md`](current/core-release-handoff.md) | ตรวจสถานะ Core, release bundle, security gates และสิ่งที่ส่งให้ Launcher |
+| [`current/v2ray-runtime-fix-handoff.md`](current/v2ray-runtime-fix-handoff.md) | ตรวจสถานะ V2Ray data plane fix, failure progression, artifact authority และ runtime proof |
 | [`current/neko-auth-lite-core-contract.md`](current/neko-auth-lite-core-contract.md) | NEKO-AUTH-LITE/lite-v1 Core permit, challenge, replay และ launch-boundary contract |
 | [`../README.md`](../README.md) | เริ่มต้นใช้งาน repository, build/test/publish และดูโครงสร้าง source |
 

@@ -1,4 +1,4 @@
-# NekoProxyCore — NEKO-AUTH-LITE Core Release Handoff
+﻿# NekoProxyCore โ€” NEKO-AUTH-LITE Core Release Handoff
 
 - **Contract:** `NEKO-AUTH-LITE`
 - **Revision:** `lite-v1`
@@ -47,6 +47,17 @@ Known build warning: Tests/Global.cs SYSLIB0021 SHA1CryptoServiceProvider obsole
 
 Release/x64 build and full publish/security process smoke remain required gates before integration approval. Direct Core no-permit behavior must remain runtime start count `0`.
 
+## Data plane status
+
+```text
+V2RAY_FIX = CLOSED
+CORE_DATA_PLANE = PASS
+REAL_PSO2_NETWORK_PROXY_PROVEN = YES
+CORE_FIX_COMMIT = 3954b0fa03c5188bfdd7faea7b0fe30ba4d9fe89
+```
+
+Authoritative data-plane handoff: [`v2ray-runtime-fix-handoff.md`](v2ray-runtime-fix-handoff.md)
+
 ## Security status
 
 ```text
@@ -69,6 +80,7 @@ LAUNCHER_BACKEND_LITE_AUTHORITY = 3f54288012aaf8c2d459d25faccd18d373ab0724
 HOSTED LITE CUTOVER = NOT PERFORMED
 LITE PRODUCTION ARTIFACT = NOT RELEASED
 CROSS-COMPONENT LITE E2E = NOT YET EXECUTED
+V2RAY DATA PLANE DEFECT = CLOSED / PROVEN
 ```
 
 S0 remains current production authority. Next phase: coordinated Launcher + Backend Lite and Core Lite cross-component automated E2E, manual E2E, then cutover decision.
