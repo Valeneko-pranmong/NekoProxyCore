@@ -5,7 +5,7 @@
 - **Source Owner:** `TEAM_CORE`
 - **Packaging Owner:** `TEAM_LAUNCHER`
 - **Team Web:** `NO ACTION`
-- **Core Fix Commit:** `3954b0fa03c5188bfdd7faea7b0fe30ba4d9fe89`
+- **Core Fix Commit:** `c3e3fb09ce20de7f05c34bb99cc77f7ebbebc710` (pre-rebase local: `3954b0fa03c5188bfdd7faea7b0fe30ba4d9fe89`)
 - **Canonical Debug EXE SHA-256:** `6463329C0345E4C84A615791F7954ADFB31BBEBA99F43AB8D79B05E0E5CC2F63`
 
 ---
@@ -84,8 +84,9 @@ public void SocksProductionPathStreamsChildConfigurationWithoutPlaintextTempFile
 ## 5. Source Authority
 
 - **Pre-Commit Core HEAD:** `d909a2a0f1a06562b060535ae57bb4d0cddcb251`
-- **Core Fix Commit:** `3954b0fa03c5188bfdd7faea7b0fe30ba4d9fe89`
-- **Commit Message:** `fix(core): use supported v2ray stdin config invocation`
+- **Core Fix Commit (Canonical Origin):** `c3e3fb09ce20de7f05c34bb99cc77f7ebbebc710`
+- **Pre-Rebase Local Commit (Identical Patch):** `3954b0fa03c5188bfdd7faea7b0fe30ba4d9fe89`
+- **Commit Message:** `pass` (origin) / `fix(core): use supported v2ray stdin config invocation`
 - **Core Worktree Status:** Clean (`CORE_WORKTREE_CLEAN = YES`)
 - **Launcher Source Modifications:** `NO` (`LAUNCHER_SOURCE_CHANGE = NO`)
 - **Web Source Modifications:** `NO` (`WEB_SOURCE_CHANGE = NO`)

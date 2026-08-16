@@ -1,4 +1,4 @@
-﻿# NekoProxyCore โ€” NEKO-AUTH-LITE Core Release Handoff
+# NekoProxyCore โ€” NEKO-AUTH-LITE Core Release Handoff
 
 - **Contract:** `NEKO-AUTH-LITE`
 - **Revision:** `lite-v1`
@@ -53,7 +53,7 @@ Release/x64 build and full publish/security process smoke remain required gates 
 V2RAY_FIX = CLOSED
 CORE_DATA_PLANE = PASS
 REAL_PSO2_NETWORK_PROXY_PROVEN = YES
-CORE_FIX_COMMIT = 3954b0fa03c5188bfdd7faea7b0fe30ba4d9fe89
+CORE_FIX_COMMIT = c3e3fb09ce20de7f05c34bb99cc77f7ebbebc710 (pre-rebase local: 3954b0f)
 ```
 
 Authoritative data-plane handoff: [`v2ray-runtime-fix-handoff.md`](v2ray-runtime-fix-handoff.md)
