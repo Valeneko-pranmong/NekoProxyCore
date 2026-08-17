@@ -1,4 +1,4 @@
-﻿# NEKO FAMILY PROXY โ€” IMPLEMENTATION HANDOFF
+# NEKO FAMILY PROXY โ€” IMPLEMENTATION HANDOFF
 # Core Telemetry & Observability Implementation Handoff
 
 ```text
@@ -6,6 +6,9 @@ DOCUMENT:               docs/current/core-telemetry-implementation-handoff.md
 STATUS:                 FROZEN (T0 Contract Freeze Completed)
 CURRENT_PHASE:          T0_CONTRACT_FREEZE
 CURRENT_OWNER:          TEAM_COORDINATION
+T0_STATUS:              PASS
+T0_DOC_AUTHORITY:       D:\Github\NekoProxyCore\docs
+T0_DOC_COMMIT:          d377ffdd0f934e94738049580b7c424e68c0621c
 NEXT_PHASE:             T1_CORE_TELEMETRY_FOUNDATION
 NEXT_OWNER:             TEAM_CORE
 RECOMMENDED_MODEL:      Gemini 3.7 Flash High
@@ -209,6 +212,8 @@ SECRETS_WRITTEN_TO_DOCS                = NO
 DOCUMENTATION_DIFF_REVIEW              = PASS
 
 T0_EXIT_GATE                           = PASS
+T0_DOCUMENTATION_AUTHORITY             = D:\Github\NekoProxyCore\docs
+T0_DOCUMENTATION_COMMIT                = d377ffdd0f934e94738049580b7c424e68c0621c
 HANDOFF_READY                          = YES
 NEXT_PHASE                             = T1_CORE_TELEMETRY_FOUNDATION
 NEXT_PRIMARY_TEAM                      = TEAM_CORE
