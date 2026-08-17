@@ -50,7 +50,10 @@ internal static class Program
                     CryptographicOperations.ZeroMemory(settingsKey);
                 }
                 var configurationCatalog = new NetchProcessModeConfigurationCatalog();
-                var statusSink = new NullStatusSink();
+                var primaryStatusSink = new NullStatusSink();
+                using var telemetryBuffer = new BoundedTelemetryBuffer(BoundedTelemetryBuffer.DefaultCapacity);
+                var telemetryPublisher = new TelemetryPublisher(telemetryBuffer);
+                var statusSink = new CompositeProxyStatusSink(primaryStatusSink, telemetryPublisher);
                 var engine = new NetchProcessModeEngine(
                     new NetchProcessModeSessionResolver(configurationCatalog, diagnostics),
                     statusSink,
@@ -64,9 +67,31 @@ internal static class Program
                     shutdown,
                     configurationCatalog,
                     diagnostics: diagnostics);
+                var telemetryAggregator = new CoreTelemetryAggregator(runtime, telemetryPublisher);
+                var telemetryServer = new HeadlessTelemetryServer(telemetryBuffer, diagnostics: diagnostics);
 
-                await server.RunAsync(shutdown.Token).ConfigureAwait(false);
-                await runtime.StopAsync().ConfigureAwait(false);
+                telemetryPublisher.PublishLifecycle("core.started", "core");
+                var telemetryTask = telemetryServer.RunAsync(shutdown.Token);
+                var aggregatorTask = telemetryAggregator.RunAsync(shutdown.Token);
+
+                try
+                {
+                    await server.RunAsync(shutdown.Token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    telemetryPublisher.PublishLifecycle("core.stopping", "core");
+                    await runtime.StopAsync().ConfigureAwait(false);
+                    telemetryPublisher.PublishLifecycle("core.stopped", "core");
+                    try
+                    {
+                        await Task.WhenAll(telemetryTask, aggregatorTask).ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        // Clean host exit
+                    }
+                }
                 return 0;
             }
             catch (OperationCanceledException) when (shutdown.IsShutdownRequested)
