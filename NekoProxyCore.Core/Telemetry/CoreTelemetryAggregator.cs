@@ -11,16 +11,19 @@ public sealed class CoreTelemetryAggregator : ICoreHealthProvider
 {
     private readonly IProxyRuntime _runtime;
     private readonly ITelemetryPublisher _publisher;
+    private readonly INetFilterStatisticsProvider? _statisticsProvider;
     private readonly TimeSpan _interval;
     private readonly Stopwatch _uptimeStopwatch;
 
     public CoreTelemetryAggregator(
         IProxyRuntime runtime,
         ITelemetryPublisher publisher,
-        TimeSpan? interval = null)
+        TimeSpan? interval = null,
+        INetFilterStatisticsProvider? statisticsProvider = null)
     {
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _publisher = publisher ?? throw new ArgumentNullException(nameof(publisher));
+        _statisticsProvider = statisticsProvider;
         _interval = interval ?? TimeSpan.FromMilliseconds(1000);
         _uptimeStopwatch = Stopwatch.StartNew();
     }
@@ -31,10 +34,34 @@ public sealed class CoreTelemetryAggregator : ICoreHealthProvider
         var proxyState = MapProxyState(statusSnapshot.Status);
         var isConnected = statusSnapshot.Status == ProxyStatusKind.Running;
 
+        NetFilterStatisticsSnapshot stats = default;
+        if (_statisticsProvider != null)
+        {
+            try
+            {
+                stats = _statisticsProvider.GetCurrentStatistics();
+            }
+            catch
+            {
+                // Fail-safe: Provider exceptions must never impact health snapshot delivery
+            }
+        }
+
         return new CoreHealthSnapshotPayload(
             CoreState: "running",
             ProxyState: proxyState,
             UptimeMs: (ulong)_uptimeStopwatch.ElapsedMilliseconds,
+            TcpConnectTotal: stats.TcpConnectTotal,
+            TcpActive: stats.TcpActive,
+            TcpClosedTotal: stats.TcpClosedTotal,
+            UdpEventTotal: stats.UdpEventTotal,
+            DnsQueryTotal: stats.DnsQueryTotal,
+            DnsFailureTotal: stats.DnsFailureTotal,
+            RedirectSuccessTotal: stats.RedirectSuccessTotal,
+            RedirectFailureTotal: stats.RedirectFailureTotal,
+            RxBytes: stats.RxBytes,
+            TxBytes: stats.TxBytes,
+            NetworkErrorTotal: stats.NetworkErrorTotal,
             V2RayRunning: isConnected,
             LocalSocksRunning: isConnected,
             ShadowsocksConnected: isConnected,

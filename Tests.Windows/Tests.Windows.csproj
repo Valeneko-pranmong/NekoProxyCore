@@ -18,6 +18,8 @@
                       CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="..\Netch\Netch.csproj"
                       AdditionalProperties="HeadlessCoreBuild=true;Platform=x64;GenerateDependencyFile=false" />
+    <None Include="..\Redirector\bin\Release\Redirector.bin" Link="Redirector.bin" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\Redirector\static\nfapi.dll" Link="nfapi.dll" CopyToOutputDirectory="PreserveNewest" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.2.0" />
     <PackageReference Include="MSTest.TestAdapter" Version="2.2.10" />
     <PackageReference Include="MSTest.TestFramework" Version="2.2.10" />

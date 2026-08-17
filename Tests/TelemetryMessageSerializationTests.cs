@@ -60,6 +60,17 @@ public sealed class TelemetryMessageSerializationTests
             CoreState: "running",
             ProxyState: "connected",
             UptimeMs: 125000,
+            TcpConnectTotal: 412,
+            TcpActive: 8,
+            TcpClosedTotal: 404,
+            UdpEventTotal: 95,
+            DnsQueryTotal: 64,
+            DnsFailureTotal: 0,
+            RedirectSuccessTotal: 412,
+            RedirectFailureTotal: 0,
+            RxBytes: 154820912,
+            TxBytes: 12490184,
+            NetworkErrorTotal: 0,
             V2RayRunning: true,
             LocalSocksRunning: true,
             ShadowsocksConnected: true,
@@ -72,6 +83,17 @@ public sealed class TelemetryMessageSerializationTests
         Assert.AreEqual("running", root.GetProperty("core_state").GetString());
         Assert.AreEqual("connected", root.GetProperty("proxy_state").GetString());
         Assert.AreEqual((ulong)125000, root.GetProperty("uptime_ms").GetUInt64());
+        Assert.AreEqual((ulong)412, root.GetProperty("tcp_connect_total").GetUInt64());
+        Assert.AreEqual((uint)8, root.GetProperty("tcp_active").GetUInt32());
+        Assert.AreEqual((ulong)404, root.GetProperty("tcp_closed_total").GetUInt64());
+        Assert.AreEqual((ulong)95, root.GetProperty("udp_event_total").GetUInt64());
+        Assert.AreEqual((ulong)64, root.GetProperty("dns_query_total").GetUInt64());
+        Assert.AreEqual((ulong)0, root.GetProperty("dns_failure_total").GetUInt64());
+        Assert.AreEqual((ulong)412, root.GetProperty("redirect_success_total").GetUInt64());
+        Assert.AreEqual((ulong)0, root.GetProperty("redirect_failure_total").GetUInt64());
+        Assert.AreEqual((ulong)154820912, root.GetProperty("rx_bytes").GetUInt64());
+        Assert.AreEqual((ulong)12490184, root.GetProperty("tx_bytes").GetUInt64());
+        Assert.AreEqual((ulong)0, root.GetProperty("network_error_total").GetUInt64());
         Assert.IsTrue(root.GetProperty("v2ray_running").GetBoolean());
         Assert.IsTrue(root.GetProperty("local_socks_running").GetBoolean());
         Assert.IsTrue(root.GetProperty("shadowsocks_connected").GetBoolean());

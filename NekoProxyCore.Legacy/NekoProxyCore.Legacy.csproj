@@ -21,6 +21,7 @@
     <Compile Remove="ProtectedSettingsPayload.cs" />
     <Compile Remove="ProtectedSettingsProvisioner.cs" />
     <Compile Remove="ProductionProtectedSettingsValidator.cs" />
+    <Compile Remove="NetchRedirectorStatisticsProvider.cs" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net6.0-windows'">

@@ -20,8 +20,8 @@ DWORD CurrentID = 0;
 mutex udpContextLock;
 map<ENDPOINT_ID, SocksHelper::PUDP> udpContext;
 
-atomic_ullong UP = { 0 };
-atomic_ullong DL = { 0 };
+extern atomic_ullong UP;
+extern atomic_ullong DL;
 
 wstring ConvertIP(PSOCKADDR addr)
 {
@@ -238,6 +238,7 @@ void tcpConnectRequest(ENDPOINT_ID id, PNF_TCP_CONN_INFO info)
 	}
 
 	TCPHandler::CreateHandler(client, remote);
+	g_tcp_connect_total.fetch_add(1, std::memory_order_relaxed);
 	wcout << "[Redirector][EventHandler][tcpConnectRequest][" << id << "][" << info->processId << "] " << ConvertIP((PSOCKADDR)&client) << " -> " << ConvertIP((PSOCKADDR)&remote) << endl;
 }
 
@@ -362,12 +363,18 @@ void udpSend(ENDPOINT_ID id, const unsigned char* target, const char* buffer, in
 	udpContextLock.unlock();
 
 	if (remote->tcpSocket == INVALID_SOCKET && !remote->Associate())
+	{
+		g_redirect_failure_total.fetch_add(1, std::memory_order_relaxed);
 		return;
+	}
 
 	if (remote->udpSocket == INVALID_SOCKET)
 	{
 		if (!remote->CreateUDP())
+		{
+			g_redirect_failure_total.fetch_add(1, std::memory_order_relaxed);
 			return;
+		}
 
 		auto option = (PNF_UDP_OPTIONS)new char[sizeof(NF_UDP_OPTIONS) + options->optionsLength]();
 		memcpy(option, options, sizeof(NF_UDP_OPTIONS) + options->optionsLength - 1);
@@ -376,7 +383,16 @@ void udpSend(ENDPOINT_ID id, const unsigned char* target, const char* buffer, in
 	}
 
 	if (remote->Send((PSOCKADDR_IN6)target, buffer, length) == length)
+	{
 		UP += length;
+		g_tx_bytes.fetch_add(length, std::memory_order_relaxed);
+		g_redirect_success_total.fetch_add(1, std::memory_order_relaxed);
+		g_udp_event_total.fetch_add(1, std::memory_order_relaxed);
+	}
+	else
+	{
+		g_redirect_failure_total.fetch_add(1, std::memory_order_relaxed);
+	}
 }
 
 void udpCanReceive(ENDPOINT_ID id)
@@ -417,6 +433,7 @@ void udpReceiveHandler(ENDPOINT_ID id, SocksHelper::PUDP remote, PNF_UDP_OPTIONS
 			break;
 
 		DL += length;
+		g_rx_bytes.fetch_add(length, std::memory_order_relaxed);
 
 		nf_udpPostReceive(id, (unsigned char*)&target, buffer, length, options);
 	}

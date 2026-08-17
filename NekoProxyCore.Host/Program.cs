@@ -67,7 +67,11 @@ internal static class Program
                     shutdown,
                     configurationCatalog,
                     diagnostics: diagnostics);
-                var telemetryAggregator = new CoreTelemetryAggregator(runtime, telemetryPublisher);
+                var statisticsProvider = new NetchRedirectorStatisticsProvider();
+                var telemetryAggregator = new CoreTelemetryAggregator(
+                    runtime,
+                    telemetryPublisher,
+                    statisticsProvider: statisticsProvider);
                 var telemetryServer = new HeadlessTelemetryServer(telemetryBuffer, diagnostics: diagnostics);
 
                 telemetryPublisher.PublishLifecycle("core.started", "core");
@@ -100,8 +104,9 @@ internal static class Program
                     await runtime.StopAsync().ConfigureAwait(false);
                 return 0;
             }
-            catch
+            catch (Exception ex)
             {
+                await Console.Error.WriteLineAsync($"[CORE_FATAL] {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}").ConfigureAwait(false);
                 if (runtime != null)
                     await runtime.StopAsync().ConfigureAwait(false);
                 return 2;

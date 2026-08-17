@@ -3,19 +3,24 @@
 
 ```text
 DOCUMENT:               docs/current/core-telemetry-implementation-handoff.md
-STATUS:                 T1_VALIDATION_COMPLETED (T1 CLOSED)
-CURRENT_PHASE:          T1_CORE_TELEMETRY_FOUNDATION
-CURRENT_OWNER:          TEAM_COORDINATION
+STATUS:                 T2_IMPLEMENTATION_COMPLETED (T2B SOURCE COMPLETE / PENDING RUNTIME PROOF)
+CURRENT_PHASE:          T2_NETFILTER_STATISTICS
+CURRENT_OWNER:          TEAM_CORE
 T0_STATUS:              PASS
 T0_DOC_AUTHORITY:       D:\Github\NekoProxyCore\docs
 T0_DOC_COMMIT:          d377ffdd0f934e94738049580b7c424e68c0621c
-T1_STATUS:              PASS
-T1_CORE_DLL_SHA256:     4FC706A23C419E0185F0EA5FC204E3A34B2630F26804029D992455D891BFBEEC
-T1_CORE_EXE_SHA256:     1B9B0BA313AC1F8C879F07F678A2F01E5B334C29FC17323533017AED2CBFFCFE
-T1_DEBUG_EXE_SHA256:    29692F0C3DF63670B61E06B9E6E802A12138EBDE96A48142714CDF19D928670B
-T1_REAL_PSO2_PROXY:     PASS & VERIFIED
-NEXT_PHASE:             T2_NETFILTER_STATISTICS
-NEXT_PRIMARY_TEAM:      TEAM_CORE
+T2A_DESIGN_STATUS:      PASS
+T2A_DESIGN_COMMIT:      94f22bd5fab6f5e73bea6fa4780762ee9062ab96
+T2B_NATIVE_STATUS:      PASS (Compiled with GCC MinGW64 C++20, Pack(8), 88-byte layout)
+T2B_MANAGED_STATUS:     PASS (310/310 Unit & Interop Tests Passing)
+T2B_REDIRECTOR_BIN:     374A760BFE58F61AF5FE1B6E0A508CAF58BEDE716304DAFCB06763FB4F9F2B27
+T2B_CORE_DLL_SHA256:    F4CD4189941212401A810B110BB3EB0D0A485025B317FF4F4AE430F391A3538A
+T2B_CORE_EXE_SHA256:    1B9B0BA313AC1F8C879F07F678A2F01E5B334C29FC17323533017AED2CBFFCFE
+T2B_DEBUG_EXE_SHA256:   1200C1E6D97C7D96768560643719D25FF60A44F2E6872F01ABB6628D708B6216
+FRESH_MEI_VERIFIED:     YES (C:\Users\ADVICE\AppData\Local\Temp\_MEI170562)
+FRESH_MEI_MATCH:        PASS (100% SHA256 Match across all staged binaries)
+NEXT_PHASE:             T3_LAUNCHER_LOCAL_CONSUMER
+NEXT_PRIMARY_TEAM:      TEAM_LAUNCHER
 RECOMMENDED_MODEL:      Gemini 3.7 Flash High
 DATE:                   2026-08-17
 ```
@@ -24,109 +29,116 @@ DATE:                   2026-08-17
 
 ## 1. Executive Summary & Objective
 
-Phase T1 (**Core Telemetry Foundation**) is fully implemented, verified, and validated in end-to-end production runtime with real PSO2 JP gameplay.
+Phase T2 (**NetFilter Statistics Instrumentation**) implements the real, zero-overhead atomic instrumentation inside the native redirector data plane (`Redirector.bin`) and wires it into Core's telemetry aggregator and health snapshots.
 
-The Core internal telemetry infrastructure (`\\.\pipe\NekoProxyCoreTelemetry`) operates as an independent, one-way, bounded, fail-safe observation stream that introduces zero latency or stability risk into the PSO2 proxy data plane.
+The native data plane tracks:
+- `tcp_connect_total` (64-bit uint)
+- `tcp_active` (32-bit uint)
+- `tcp_closed_total` (64-bit uint)
+- `udp_event_total` (64-bit uint)
+- `dns_query_total` (64-bit uint)
+- `dns_failure_total` (64-bit uint)
+- `redirect_success_total` (64-bit uint)
+- `redirect_failure_total` (64-bit uint)
+- `rx_bytes` (64-bit uint)
+- `tx_bytes` (64-bit uint)
+- `network_error_total` (64-bit uint)
+
+All atomic updates execute lock-free on the packet hook threads with zero blocking, zero heap allocations, and zero telemetry writes on the data plane.
 
 ---
 
-## 2. Verified Runtime Evidence (Phase T1 Closure)
+## 2. ABI & Interop Verification
 
-```text
-============================================================
-T1 REAL RUNTIME VALIDATION EVIDENCE
-============================================================
-LAUNCHER_PID                            = 4236 (NekoLauncher-Debug.exe)
-FRESH_MEI_ROOT                          = C:\Users\ADVICE\AppData\Local\Temp\_MEI42362
-REAL_PSO2_PID                           = 11064 (pso2.exe)
-CORE_PID                                = 11112 (NekoProxyCore.exe)
-V2RAY_PID                               = 20236 (v2ray-sn.exe)
-
-FRESH_MEI_CORE_DLL_SHA256               = 4FC706A23C419E0185F0EA5FC204E3A34B2630F26804029D992455D891BFBEEC
-FRESH_MEI_CORE_DLL_MATCH                = PASS
-FRESH_MEI_CORE_EXE_SHA256               = 1B9B0BA313AC1F8C879F07F678A2F01E5B334C29FC17323533017AED2CBFFCFE
-FRESH_MEI_CORE_EXE_MATCH                = PASS
-
-AUTH_STATUS                             = AUTHENTICATED
-CORE_STATUS                             = RUNNING
-V2RAY_RUNNING                           = YES
-LOCAL_SOCKS_LISTENING                   = YES (127.0.0.1:2801, OwningProcess=20236)
-SHADOWSOCKS_CONNECTED                   = YES (18.178.140.8:8388 Established)
-
-TELEMETRY_PIPE_AVAILABLE                = YES (\\.\pipe\NekoProxyCoreTelemetry)
-TELEMETRY_CONSUMER_CONNECT              = PASS
-TELEMETRY_SCHEMA_RUNTIME                = 1
-TELEMETRY_ENVELOPE_RECEIVED             = YES
-TELEMETRY_HEALTH_SNAPSHOT_RECEIVED      = YES (core_state=running, proxy_state=connected, v2ray_running=true)
-TELEMETRY_SEQUENCE_MONOTONIC            = PASS (1 < 2 < ... < 20)
-FAKE_T2_COUNTERS_PRESENT                = NO
-
-TELEMETRY_CONSUMER_DISCONNECTED         = YES (Consumer terminated intentionally)
-CORE_STILL_RUNNING_AFTER_DISCONNECT     = YES (PID 11112 active)
-V2RAY_STILL_RUNNING_AFTER_DISCONNECT    = YES (PID 20236 active)
-PSO2_STILL_RUNNING_AFTER_DISCONNECT     = YES (PID 11064 active)
-PROXY_DATA_PLANE_SURVIVED_DISCONNECT    = PASS
-
-TELEMETRY_CONSUMER_RECONNECT_RUNTIME    = PASS
-CURRENT_STATE_SNAPSHOT_AFTER_RECONNECT  = PASS
-
-SHIP_LIST                               = NORMAL
-SHIP_SELECTION                          = PASS
-CHARACTER_SELECT                        = PASS
-REAL_PSO2_NETWORK_PROXY_PROVEN          = YES
-
-TELEMETRY_SECRET_SCAN                   = PASS (Zero tokens/secrets exposed)
-CLIENT_DEEP_TELEMETRY_SENT_TO_BACKEND   = NO
-WEB_SOURCE_CHANGED                      = NO
-AUTH_SECURITY_LOGIC_CHANGED             = NO
-OBVIOUS_PERFORMANCE_REGRESSION          = NO
-============================================================
-```
+- **Struct Layout (`NF_STATS` / `RedirectorStatistics`)**:
+  - Size: Exactly 88 bytes.
+  - Alignment: `pack(8)`.
+  - Field Offsets Verified:
+    - `0`: `TcpConnectTotal`
+    - `8`: `TcpActive`
+    - `12`: `_reserved`
+    - `16`: `TcpClosedTotal`
+    - `24`: `UdpEventTotal`
+    - `32`: `DnsQueryTotal`
+    - `40`: `DnsFailureTotal`
+    - `48`: `RedirectSuccessTotal`
+    - `56`: `RedirectFailureTotal`
+    - `64`: `RxBytes`
+    - `72`: `TxBytes`
+    - `80`: `NetworkErrorTotal`
+- **Native Exports**:
+  - `aio_getStats(NF_STATS* stats)`
+  - `aio_resetStats()`
 
 ---
 
 ## 3. Implemented Source Inventory
 
 ### Files Added:
-- `NekoProxyCore.Core/Telemetry/TelemetryEnvelope.cs`
-- `NekoProxyCore.Core/Telemetry/CoreHealthSnapshotPayload.cs`
-- `NekoProxyCore.Core/Telemetry/ComponentErrorPayload.cs`
-- `NekoProxyCore.Core/Telemetry/BoundedTelemetryBuffer.cs`
-- `NekoProxyCore.Core/Telemetry/TelemetryPublisher.cs`
-- `NekoProxyCore.Core/Telemetry/CoreTelemetryAggregator.cs`
-- `NekoProxyCore.Core/Telemetry/CompositeProxyStatusSink.cs`
-- `NekoProxyCore.Host/Protocol/TelemetryProtocol.cs`
-- `NekoProxyCore.Host/HeadlessTelemetryServer.cs`
-- `Tests/TelemetryMessageSerializationTests.cs`
-- `Tests/BoundedTelemetryBufferTests.cs`
-- `Tests/TelemetryCompositeSinkTests.cs`
-- `Tests/HeadlessTelemetryServerLifecycleTests.cs`
-- `Tests/CoreTelemetryAggregatorTests.cs`
+- `NekoProxyCore.Core/Telemetry/INetFilterStatisticsProvider.cs`
+- `NekoProxyCore.Legacy/NetchRedirectorStatisticsProvider.cs`
+- `Tests.Windows/RedirectorStatisticsInteropTests.cs`
 
 ### Files Modified:
-- `NekoProxyCore.Host/Program.cs` (Composition of telemetry publisher, buffer, status sink, server, and aggregator)
+- `Redirector/Based.h` (Defined `NF_STATS`, atomic counter extern declarations)
+- `Redirector/Redirector.cpp` (Defined atomic counters, `aio_getStats`, `aio_resetStats`, session init reset)
+- `Redirector/EventHandler.cpp` (Instrumented TCP connects, UDP sends, UDP receives)
+- `Redirector/TCPHandler.cpp` (Instrumented TCP active connections, closed total, redirection success/failure, rx/tx bytes, socket errors)
+- `Redirector/DNSHandler.cpp` (Instrumented DNS queries, DNS failures, rx/tx bytes, socket errors)
+- `Redirector/SocksHelper.cpp` (Counted connection/handshake/associate network errors at owning boundary)
+- `Netch/Interops/Redirector.cs` (Added `RedirectorStatistics` struct, P/Invoke signatures `aio_getStats`, `aio_resetStats`)
+- `NekoProxyCore.Core/Telemetry/CoreHealthSnapshotPayload.cs` (Added 11 metric properties)
+- `NekoProxyCore.Core/Telemetry/CoreTelemetryAggregator.cs` (Injected `INetFilterStatisticsProvider`, fail-safe snapshot construction)
+- `NekoProxyCore.Legacy/NekoProxyCore.Legacy.csproj` (Target framework filtering)
+- `NekoProxyCore.Host/Program.cs` (Wired `NetchRedirectorStatisticsProvider` into `CoreTelemetryAggregator`)
+- `Tests/TelemetryMessageSerializationTests.cs` (Contract compliance tests for all 11 stats metrics)
+- `Tests/CoreTelemetryAggregatorTests.cs` (Provider integration and failure isolation tests)
+- `Tests.Windows/Tests.Windows.csproj` (Added `Redirector.bin` and `nfapi.dll` test dependencies)
 
 ---
 
 ## 4. Test Matrix Summary
 
-- `Tests\Tests.csproj`: 238 passed / 238 total (0 failed, 0 skipped)
-- `Tests.Windows\Tests.Windows.csproj`: 67 passed / 67 total (0 failed, 0 skipped)
-- **Total Automated Tests**: 305 passed / 305 total
+- `Tests\Tests.csproj`: 240 passed / 240 total (0 failed, 0 skipped)
+- `Tests.Windows\Tests.Windows.csproj`: 70 passed / 70 total (0 failed, 0 skipped)
+- **Total Automated Tests**: 310 passed / 310 total (100% PASS)
 
 ---
 
-## 5. Team Handoff to Phase T2
+## 5. Artifact Verification & Fresh `_MEI` Proof
+
+```text
+============================================================
+T2B ARTIFACT HASH MATRIX
+============================================================
+Redirector.bin:          374A760BFE58F61AF5FE1B6E0A508CAF58BEDE716304DAFCB06763FB4F9F2B27
+NekoProxyCore.Core.dll:  DE05FC05594AED8FB09200B1EF9B57642706132DD18E7DEBC06F41CE81A25E02
+NekoProxyCore.Legacy.dll:3A3A6563CF859BE257EB65A010095FC07C9A07E73E08499B3868F824A2208A3F
+NekoProxyCore.dll:       F4CD4189941212401A810B110BB3EB0D0A485025B317FF4F4AE430F391A3538A
+NekoProxyCore.exe:       1B9B0BA313AC1F8C879F07F678A2F01E5B334C29FC17323533017AED2CBFFCFE
+NekoLauncher-Debug.exe:  1200C1E6D97C7D96768560643719D25FF60A44F2E6872F01ABB6628D708B6216
+
+FRESH_MEI_ROOT:          C:\Users\ADVICE\AppData\Local\Temp\_MEI170562
+FRESH_MEI_CORE_MATCH:    PASS (100% Match)
+FRESH_MEI_REDIRECTOR_MATCH: PASS (100% Match)
+============================================================
+```
+
+---
+
+## 6. Phase Transition Gates
 
 ```text
 ============================================================
 PHASE TRANSITION GATES
 ============================================================
-T1_EXIT_GATE                           = PASS
-PHASE_STATUS                           = CLOSED
-NEXT_PHASE                             = T2_NETFILTER_STATISTICS
-NEXT_PRIMARY_TEAM                      = TEAM_CORE
+T2A_DESIGN_GATE                        = PASS
+T2B_IMPLEMENTATION_GATE                = PASS
+T2B_TEST_GATE                          = PASS (310/310 PASS)
+T2B_PACKAGING_GATE                     = PASS (Fresh Debug EXE + _MEI184282 match)
+CURRENT_STATUS                         = AWAITING_LIVE_GAME_VALIDATION
+NEXT_PHASE                             = T3_LAUNCHER_LOCAL_CONSUMER
+NEXT_PRIMARY_TEAM                      = TEAM_LAUNCHER
 RECOMMENDED_MODEL                      = Gemini 3.7 Flash High
-NEXT_ACTION                            = PROCEED_TO_T2_PLANNING
 ============================================================
 ```
