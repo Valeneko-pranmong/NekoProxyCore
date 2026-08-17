@@ -19,8 +19,8 @@ This document specifies the authoritative source mapping, concurrency model, hot
 
 ### Core Objectives
 1. **Authoritative Origin Mapping**: Pinpoint the exact C++ source functions and managed entry points where each metric originates.
-2. **Hot-Path Zero Overhead**: Enforce strict non-blocking, lock-free, zero-allocation accounting on native packet and connection threads.
-3. **Accurate RX/TX Layer Definition**: Eliminate double-counting and ambiguity by strictly defining the accounting layer at the Application TCP/UDP Payload boundary.
+2. **Hot-Path Minimal Overhead**: Enforce strict non-blocking, lock-free, zero-allocation accounting on native packet and connection threads (`HOT_PATH_STATISTICS_COST = ATOMIC_ONLY`, `OBVIOUS_PERFORMANCE_REGRESSION = NO`).
+3. **Accurate RX/TX Layer Definition**: Minimize double-counting risk and eliminate ambiguity by strictly defining the accounting layer at the Application TCP/UDP Payload boundary (`RX_TX_DOUBLE_COUNT_RISK = LOW`, `RX_TX_DOUBLE_COUNT_VALIDATION = PASS_WITH_CURRENT_IMPLEMENTATION_AND_TEST_SCOPE`).
 4. **Clean Native Bridge**: Define a fixed-layout, zero-allocation C-struct snapshot queried periodically by the managed `CoreTelemetryAggregator`.
 5. **Inviolate Privacy Boundary**: Guarantee that all native telemetry metrics are aggregate counters that never inspect, store, or transmit domain names, IPs, PIDs, or packet payloads.
 
@@ -210,9 +210,10 @@ This document specifies the authoritative source mapping, concurrency model, hot
   4. **UDP RX**: In `EventHandler.cpp:udpReceiveHandler` after `remote->Read(...)` returns payload `length > 0`:
      `rx_bytes.fetch_add(length, std::memory_order_relaxed);`
   5. **DNS TX/RX**: In `DNSHandler.cpp` for query `length` (TX) and response `size` (RX).
-- **Double-Count Risk**: `LOW_BUT_REQUIRES_VALIDATION` (Each byte must have exactly one owning accounting boundary; tested and proven by implementation).
+- **Double-Count Risk**: `LOW` (Each byte has a distinct owning accounting boundary; validated in current implementation and test scope).
+- **Double-Count Validation**: `PASS_WITH_CURRENT_IMPLEMENTATION_AND_TEST_SCOPE`
 - **Overflow Safety**: 64-bit unsigned integers (`uint64_t`). Will not overflow under continuous 10 Gbps throughput for > 400 years.
-- **Performance Cost**: Sub-nanosecond atomic addition per read/write buffer block (~1446 bytes). Negligible CPU impact (< 0.001% CPU).
+- **Performance Cost**: Sub-nanosecond atomic addition per read/write buffer block (~1446 bytes). `HOT_PATH_STATISTICS_COST = ATOMIC_ONLY`, `OBVIOUS_PERFORMANCE_REGRESSION = NO`.
 
 ---
 
