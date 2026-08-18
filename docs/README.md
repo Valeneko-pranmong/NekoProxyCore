@@ -1,60 +1,58 @@
-# NekoProxyCore Documentation
+# NekoProxyCore Documentation Index
 
-เอกสารใน repository นี้แบ่งตามอายุและหน้าที่อย่างชัดเจน ห้ามใช้ไฟล์ใน `archive/`
-ตัดสินสถานะปัจจุบันโดยไม่ตรวจ `current/` ก่อน
+Last reviewed: **18 August 2026** (Phase PRE-T10 Repository Hygiene)
 
-## ใช้งานปัจจุบัน
+This is the canonical index for NekoProxyCore documentation. Documents are strictly separated by lifecycle to eliminate ambiguity between active source contracts, runtime behavior, and historical evidence.
 
-| เอกสาร | ใช้เมื่อ |
-|---|---|
-| [`current/core-release-handoff.md`](current/core-release-handoff.md) | ตรวจสถานะ Core, release bundle, security gates และสิ่งที่ส่งให้ Launcher |
-| [`current/v2ray-runtime-fix-handoff.md`](current/v2ray-runtime-fix-handoff.md) | ตรวจสถานะ V2Ray data plane fix, failure progression, artifact authority และ runtime proof |
-| [`current/neko-auth-lite-core-contract.md`](current/neko-auth-lite-core-contract.md) | NEKO-AUTH-LITE/lite-v1 Core permit, challenge, replay และ launch-boundary contract |
-| [`../README.md`](../README.md) | เริ่มต้นใช้งาน repository, build/test/publish และดูโครงสร้าง source |
+---
 
-`docs/current/` ต้องมีเฉพาะเอกสารที่ยังเป็น source of truth ปัจจุบัน เมื่อเอกสารถูกแทนที่
-ให้ย้ายเข้า `docs/archive/<topic>/` พร้อมวันที่หรือ phase ในชื่อไฟล์
+## 1. Branch Roles & Authority Hierarchy
 
-## Reference ที่ยังใช้
+| Branch | Role / Classification | Commit Authority |
+| :--- | :--- | :--- |
+| **`feature/neko-auth-lite-v1-core`** | **Current Source-Development Authority** | `f269627351fc6a2c13b07c90f0e43ff69d17f058` |
+| **`feature/neko-headless`** | Historical S0 Development Line | `3eb77e3` / `b3c9d0851cff74691500c431c0da1ec30c21927a` |
+| **`main`** | Legacy / Upstream Reference Line | `9d99eb1` |
+| **Production Artifact Authority** | **`AMBIGUOUS / NOT YET REFROZEN`** | (Historical S0: `b3c9d08`, V2Ray fix: `c3e3fb0`, Source: `f269627`) |
 
-| เอกสาร | บทบาท |
-|---|---|
-| [`reference/legacy-netch-upstream.md`](reference/legacy-netch-upstream.md) | README ของ upstream Netch เดิมสำหรับ compatibility/reference |
+---
 
-Reference อธิบาย contract, upstream หรือวิธีคิดที่ยังใช้ได้ แต่ไม่ใช่ progress/status report
+## 2. Active Core Documentation (`docs/current/`)
 
-## Historical archive
+| Document | Classification | Purpose |
+| :--- | :--- | :--- |
+| **[`current/core-release-handoff.md`](current/core-release-handoff.md)** | `CURRENT_STATUS` | Core source release status, provenance distinction, and verification commands |
+| **[`current/neko-auth-lite-core-contract.md`](current/neko-auth-lite-core-contract.md)** | `CURRENT_CONTRACT` | NEKO-AUTH-LITE (lite-v1) Core permit, challenge, and launch-boundary contract |
+| **[`current/v2ray-runtime-fix-handoff.md`](current/v2ray-runtime-fix-handoff.md)** | `CURRENT_RUNTIME_AUTHORITY` | Verified V2Ray child process stdin invocation fix (`run -format=json`) |
+| **[`current/protected-runtime-settings.md`](current/protected-runtime-settings.md)** | `CURRENT_CONTRACT` | Protected runtime configuration encryption and ephemeral memory handling |
+| **[`current/runtime-config-discovery-contract.md`](current/runtime-config-discovery-contract.md)** | `CURRENT_CONTRACT` | Safe Core runtime configuration discovery protocol |
 
-ดู [`archive/README.md`](archive/README.md) สำหรับรายการทั้งหมด
+---
 
-| กลุ่ม | เนื้อหา |
-|---|---|
-| `archive/plans/` | แผน build/implementation ที่ดำเนินการแล้วหรือถูกแทนที่ |
-| `archive/step-d/` | ProcessMode integration checkpoints ก่อน authorization |
-| `archive/step-e/` | Headless host/Launcher boundary plan ที่ดำเนินการแล้ว |
-| `archive/security-s0/` | Proposal, handoff และ freeze-request snapshots ของ S0 |
-| `archive/ci/` | CI investigation/proposal ณ เวลาใดเวลาหนึ่ง ไม่ใช่ queue ปัจจุบัน |
+## 3. Architecture Specifications (`docs/architecture/`)
 
-เอกสาร archive อาจมี path, test count, commit, toolchain และสถานะที่ล้าสมัย เก็บไว้เพื่อ
-trace history เท่านั้น
+| Document | Classification | Purpose |
+| :--- | :--- | :--- |
+| **[`architecture/core-telemetry-contract.md`](architecture/core-telemetry-contract.md)** | `CURRENT_ARCHITECTURE` | Named Pipe `\\.\pipe\NekoProxyCoreTelemetry` JSON wire schema and metrics |
+| **[`architecture/client-observability-privacy-boundary.md`](architecture/client-observability-privacy-boundary.md)** | `CURRENT_ARCHITECTURE` | Strict client-side observability privacy, forbidden fields, and aggregation rules |
+| **[`architecture/netfilter-statistics-instrumentation.md`](architecture/netfilter-statistics-instrumentation.md)** | `CURRENT_ARCHITECTURE` | NetFilter packet driver statistics data plane and aggregator architecture |
 
-## Generated outputs
+---
 
-Generated build/test artifacts ไม่เก็บใน Git:
+## 4. Reference (`docs/reference/`)
 
-- `artifacts/` — legacy verification snapshots ที่ถูกแทนที่แล้ว
-- `.hermes-verify-dotnet/` — temporary .NET runtime/SDK subset
-- `TestResults/` — local build/test output
-- `release/` — runtime bundles และ release metadata สำหรับส่งมอบแยกจาก Git
+| Document | Purpose |
+| :--- | :--- |
+| **[`reference/legacy-netch-upstream.md`](reference/legacy-netch-upstream.md)** | Original upstream Netch reference documentation |
 
-สร้าง output ใหม่จาก source และ canonical commands ใน root README/current handoff แทนการ
-นำ historical binary snapshot กลับมาใช้
+---
 
-## Naming rules
+## 5. Historical Archive (`docs/archive/`)
 
-- ใช้ lowercase kebab-case สำหรับชื่อเอกสาร
-- Current status ใช้ชื่อที่บอก deliverable เช่น `core-release-handoff.md`
-- Archive snapshot ใส่ phase/topic และวันที่เมื่อจำเป็น เช่น
-  `project-handoff-2026-08-03.md`
-- หลีกเลี่ยงชื่อกว้าง เช่น `HANDOFF.md`, `STATUS.md` หรือ `REPORT.md` ที่ไม่บอกขอบเขต
-- ลิงก์ภายใน repository ใช้ relative Markdown links
+| Archive Topic | Path | Contents |
+| :--- | :--- | :--- |
+| **Telemetry** | [`archive/telemetry/`](archive/telemetry/) | [`core-telemetry-implementation-handoff.md`](archive/telemetry/core-telemetry-implementation-handoff.md), [`core-telemetry-monitoring-brief.md`](archive/telemetry/core-telemetry-monitoring-brief.md) |
+| **Security S0** | [`archive/security-s0/`](archive/security-s0/) | Historical S0 authorization proposals, freeze requests, and test matrices |
+| **Step D** | [`archive/step-d/`](archive/step-d/) | ProcessMode integration checkpoints prior to authorization |
+| **Step E** | [`archive/step-e/`](archive/step-e/) | Headless host and Launcher boundary plan snapshots |
+| **Plans & CI** | [`archive/plans/`](archive/plans/), [`archive/ci/`](archive/ci/) | Superseded build plans and CI maintenance proposals |

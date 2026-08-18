@@ -1,88 +1,75 @@
-# NekoProxyCore โ€” NEKO-AUTH-LITE Core Release Handoff
-
-- **Contract:** `NEKO-AUTH-LITE`
-- **Revision:** `lite-v1`
-- **Scope:** Core source/test preparation. No deployment or production artifact.
-- **Historical S0 handoff:** [`../archive/security-s0/core-release-handoff-s0.md`](../archive/security-s0/core-release-handoff-s0.md)
-- **Lite contract:** [`neko-auth-lite-core-contract.md`](neko-auth-lite-core-contract.md)
-
-## Current status
-
-Core Lite verifier and production composition use `NEKO-AUTH-LITE/lite-v1`.
-Production permit authority remains exact `neko-prod-key-2`, RSA 3072-bit, SPKI SHA-256:
+# NekoProxyCore — Core Release & Authority Handoff
 
 ```text
-4a0ef40a483c6a4f294724ea62d0ae55357176e196c9747defec06769a0d0801
+DOCUMENT:                               docs/current/core-release-handoff.md
+STATUS:                                 PRE-T10 REPOSITORY HYGIENE
+LATEST_SOURCE_AUTHORITY:                f269627351fc6a2c13b07c90f0e43ff69d17f058
+LATEST_SOURCE_BRANCH:                   feature/neko-auth-lite-v1-core
+HISTORICAL_S0_RELEASE_BASELINE:         b3c9d0851cff74691500c431c0da1ec30c21927a
+V2RAY_LIVE_DATA_PLANE_FIX:              c3e3fb09ce20de7f05c34bb99cc77f7ebbebc710
+DEPLOYED_OR_PACKAGED_ARTIFACT_AUTHORITY: AMBIGUOUS / NOT YET REFROZEN
+CONTRACT:                               NEKO-AUTH-LITE (lite-v1) + Local Telemetry Named Pipe
+DATE:                                   2026-08-18
 ```
 
-Core production start path remains fail closed:
+---
 
-```text
-HeadlessControlServer START
-  -> HeadlessRuntimeCoordinator.StartAsync
-  -> ChallengePermitStartAuthorizer
-  -> StrictLaunchPermitVerifier
-  -> ProcessModeController
-  -> NetchProcessModeEngine
-```
+## 1. Authority Reconciliation & Provenance
 
-Verifier accepts only valid backend-signed RS256 launch permit bound to fresh Core challenge. JTI replay is process-local and atomic. Authorization occurs before runtime precondition, `Starting`, engine, network, packet hook, or driver side effects.
+To eliminate cross-repository ambiguity, Core development and release authority are strictly distinguished:
 
-Runtime business configuration remains intact. S0 JWT bindings to `sid`, `iid`, `lid`, `cfg`, `target_pid`, `mode`, canonical configuration digest, target PID, and mode are removed from Lite verification.
+| Authority Level | Branch / Commit | Classification & Role |
+| :--- | :--- | :--- |
+| **`LATEST_SOURCE_AUTHORITY`** | `feature/neko-auth-lite-v1-core`<br>(`f269627351fc6a2c13b07c90f0e43ff69d17f058`) | **Active Core Source Line** — Contains Lite v1 challenge verification, V2Ray stdin fix, and local telemetry engine (Phases T1–T2B). |
+| **`HISTORICAL_S0_BASELINE`** | `origin/feature/neko-headless`<br>(`b3c9d0851cff74691500c431c0da1ec30c21927a`) | **Historical Release Baseline** — Previous S0 permit verification line. |
+| **`V2RAY_PROVEN_DATA_PLANE_FIX`**| `c3e3fb09ce20de7f05c34bb99cc77f7ebbebc710` | **Verified Data Plane Fix** — Invocation fix (`run -format=json`) proven with real PSO2 game client traffic. |
+| **`DEPLOYED_PACKAGED_ARTIFACT`**| `AMBIGUOUS / NOT YET REFROZEN` | Hosted Lite cutover has not been performed; packaged binary provenance will be refrozen after cross-component E2E. |
 
-## Verification
+> [!IMPORTANT]
+> **Source vs. Production Artifact Distinction:**
+> Commit `f269627` is the **LATEST CURRENT SOURCE**, but is **NOT automatically the production release binary**.
+> Phase T10 Commercial Launcher UI/UX is authorized to consume the existing Launcher-facing telemetry contract without declaring a new Core production binary cutover.
 
-Canonical command:
+---
 
-```text
+## 2. Current Contracts & Runtime Behavior
+
+### NEKO-AUTH-LITE Contract (`lite-v1`):
+- Contract Authority: [`neko-auth-lite-core-contract.md`](neko-auth-lite-core-contract.md)
+- Production permit signing authority: `neko-prod-key-2`, RSA 3072-bit, SPKI SHA-256:
+  ```text
+  4a0ef40a483c6a4f294724ea62d0ae55357176e196c9747defec06769a0d0801
+  ```
+- Core production start path remains strictly fail-closed:
+  ```text
+  HeadlessControlServer START
+    -> HeadlessRuntimeCoordinator.StartAsync
+    -> ChallengePermitStartAuthorizer
+    -> StrictLaunchPermitVerifier
+    -> ProcessModeController
+    -> NetchProcessModeEngine
+  ```
+- Replay protection: Process-local atomic JTI tracking.
+
+### Data Plane & V2Ray Invocation:
+- Runtime Authority: [`v2ray-runtime-fix-handoff.md`](v2ray-runtime-fix-handoff.md)
+- Data plane fix (`run -format=json`) prevents Windows `stdin:` path syntax errors and is verified with real PSO2 ship connectivity.
+
+### Telemetry Architecture:
+- Architecture Contract: [`../architecture/core-telemetry-contract.md`](../architecture/core-telemetry-contract.md)
+- Named Pipe: `\\.\pipe\NekoProxyCoreTelemetry`
+- Strict privacy: Zero customer identifiers, zero token logging, bounded 1-second aggregator snapshots.
+
+---
+
+## 3. Verification Commands
+
+Canonical test command:
+```powershell
 dotnet test Tests/Tests.csproj -c Release -p:Platform=x64 --no-restore --nologo
 ```
 
-Current source validation in this migration:
-
-```text
-Core tests: 201 passed, 0 failed, 0 skipped
-Known build warning: Tests/Global.cs SYSLIB0021 SHA1CryptoServiceProvider obsolete
-```
-
-Release/x64 build and full publish/security process smoke remain required gates before integration approval. Direct Core no-permit behavior must remain runtime start count `0`.
-
-## Data plane status
-
-```text
-V2RAY_FIX = CLOSED
-CORE_DATA_PLANE = PASS
-REAL_PSO2_NETWORK_PROXY_PROVEN = YES
-CORE_FIX_COMMIT = c3e3fb09ce20de7f05c34bb99cc77f7ebbebc710 (pre-rebase local: 3954b0f)
-```
-
-Authoritative data-plane handoff: [`v2ray-runtime-fix-handoff.md`](v2ray-runtime-fix-handoff.md)
-
-## Security status
-
-```text
-private signing key in Core = absent
-service-role key in Core = absent
-permit logging = redacted / absent
-cached authorization = absent
-production bypass path = none found
-```
-
-## Cross-team dependency
-
-```text
-LAUNCHER_BACKEND_LITE_AUTHORITY = 3f54288012aaf8c2d459d25faccd18d373ab0724
-```
-
-## Production status
-
-```text
-HOSTED LITE CUTOVER = NOT PERFORMED
-LITE PRODUCTION ARTIFACT = NOT RELEASED
-CROSS-COMPONENT LITE E2E = NOT YET EXECUTED
-V2RAY DATA PLANE DEFECT = CLOSED / PROVEN
-```
-
-S0 remains current production authority. Next phase: coordinated Launcher + Backend Lite and Core Lite cross-component automated E2E, manual E2E, then cutover decision.
-
-Historical S0 documents remain unchanged under `docs/archive/security-s0/`.
+Source validation status:
+- Core tests: `201 passed, 0 failed, 0 skipped`
+- Data plane status: `REAL_PSO2_NETWORK_PROXY_PROVEN = YES`
+- Security status: `private signing key in Core = absent; service-role in Core = absent`
