@@ -38,10 +38,12 @@ public sealed class ProtectedSettingsProvisioningTests
             Global.Modes.AddRange(_originalModes);
     }
 
-    [TestMethod]
-    public async Task ValidProtectedPayloadLoadsSettingsAndUniquePso2CandidateInMemoryAsync()
+    [DataTestMethod]
+    [DataRow(1)]
+    [DataRow(5)]
+    public async Task ValidProtectedPayloadAcceptsOneOrMoreCanonicalServersInMemoryAsync(int serverCount)
     {
-        using var fixture = await ProtectedRuntimeFixture.CreateAsync(CreateValidSettings());
+        using var fixture = await ProtectedRuntimeFixture.CreateAsync(CreateValidSettings(serverCount));
 
         await NetchRuntimeBootstrap.InitializeProtectedAsync(
             fixture.RuntimeRoot,
@@ -49,7 +51,7 @@ public sealed class ProtectedSettingsProvisioningTests
             fixture.Key);
 
         Assert.AreEqual(1, Global.Settings.Profiles.Count);
-        Assert.AreEqual(5, Global.Settings.Server.Count);
+        Assert.AreEqual(serverCount, Global.Settings.Server.Count);
         var catalog = new NetchProcessModeConfigurationCatalog();
         var result = catalog.GetCatalog();
         Assert.IsTrue(result.Succeeded);
@@ -209,10 +211,10 @@ public sealed class ProtectedSettingsProvisioningTests
         CryptographicOperations.ZeroMemory(payload);
     }
 
-    private static Setting CreateValidSettings()
+    private static Setting CreateValidSettings(int serverCount = 5)
     {
         var settings = new Setting();
-        for (var index = 0; index < 5; index++)
+        for (var index = 0; index < serverCount; index++)
         {
             settings.Server.Add(new Socks5Server
             {

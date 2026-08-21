@@ -8,8 +8,7 @@ is a separate 32-byte build/provisioning input embedded in the Core host assembl
 only for the approved production publish. Neither plaintext settings nor the key
 is source-controlled. Core decrypts and parses bytes directly in memory through
 the existing Netch `Setting` and `ServerConverterWithTypeDiscriminator`
-semantics, validates the exact production shape and unique opaque PSO2 candidate,
-and never writes decrypted settings to disk.
+semantics, validates one production profile with at least one server and a unique opaque PSO2 candidate, and never writes decrypted settings to disk.
 
 Rejected alternatives:
 
@@ -45,12 +44,13 @@ dotnet run --project NekoProxyCore.SettingsTool/NekoProxyCore.SettingsTool.cspro
   <trusted-mode-root>
 ```
 
-Successful output contains structural facts only: one profile, five servers,
-PSO2 profile present, and valid canonical `profile-0/server-0` relationship.
-Acceptance also requires exactly one packaged PSO2 mode match. It never emits
-server values or credentials. The command uses a fresh random AES key and nonce,
-refuses existing output paths, cleans partial output on failure, and exits
-nonzero on invalid input.
+Successful output contains structural facts only: exactly one profile, at least
+one server, PSO2 profile present, and valid canonical `profile-0/server-0`
+relationship. Acceptance also requires exactly one packaged PSO2 mode match.
+The historical exact five-server requirement is stale and superseded by this
+AT_LEAST_ONE policy. It never emits server values or credentials. The command
+uses a fresh random AES key and nonce, refuses existing output paths, cleans
+partial output on failure, and exits nonzero on invalid input.
 
 Freeze the one approved payload/key pair before reproducibility builds. Publish
 Build A and Build B with the exact same external files:

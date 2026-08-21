@@ -35,7 +35,7 @@ public static class ProductionProtectedSettingsValidator
         {
             var profiles = settings.Profiles.ToArray();
             var servers = settings.Server.ToArray();
-            if (profiles.Length != 1 || servers.Length != 5)
+            if (profiles.Length != 1 || servers.Length < 1)
                 throw new ProtectedSettingsException();
 
             var profile = profiles[0];
