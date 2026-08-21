@@ -170,6 +170,26 @@ public sealed class IntegrationRunnerPackagingTests
                 .Any(item => item.Value == "amd64\\"),
             "Native amd64 assets must retain their bin/amd64 runtime layout.");
         Assert.IsTrue(stageLegacyBin.Descendants("Copy").Any());
+
+        var stageNativeRedirector = document
+            .Descendants("Target")
+            .SingleOrDefault(item => item.Attribute("Name")?.Value == "StageRequiredNativeRuntime");
+        Assert.IsNotNull(
+            stageNativeRedirector,
+            "Production publish must stage freshly built Redirector native files.");
+        Assert.AreEqual("Publish", stageNativeRedirector!.Attribute("BeforeTargets")?.Value);
+        var nativeInputs = stageNativeRedirector
+            .Descendants("RequiredNativeRuntimeFile")
+            .Select(item => item.Attribute("Include")?.Value?.Replace('/', '\\'))
+            .ToArray();
+        CollectionAssert.Contains(nativeInputs, "$(MSBuildThisFileDirectory)..\\Redirector\\bin\\Release\\Redirector.bin");
+        CollectionAssert.Contains(nativeInputs, "$(MSBuildThisFileDirectory)..\\Redirector\\bin\\Release\\nfapi.dll");
+        Assert.IsTrue(stageNativeRedirector.Descendants("Error").Any());
+        Assert.IsTrue(stageNativeRedirector.Descendants("Copy").Any());
+
+        Assert.IsTrue(
+            document.Descendants("Link").Any(item => item.Value == "bin\\%(Filename)%(Extension)"),
+            "Storage runtime files must retain the bin/ layout required by current PSO2 Redirector runtime.");
     }
 
     [TestMethod]

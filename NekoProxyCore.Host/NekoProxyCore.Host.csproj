@@ -67,7 +67,7 @@
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
     <Content Include="..\Storage\*">
-      <Link>%(Filename)%(Extension)</Link>
+      <Link>bin\%(Filename)%(Extension)</Link>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
@@ -86,6 +86,22 @@
     </ItemGroup>
     <Copy SourceFiles="@(LegacyRuntimeBinFile)"
           DestinationFiles="@(LegacyRuntimeBinFile->'$(PublishDir)bin\%(DestinationSubDirectory)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Condition="'$(TargetFramework)' == 'net6.0-windows'"
+          Name="StageRequiredNativeRuntime"
+          BeforeTargets="Publish">
+    <ItemGroup>
+      <RequiredNativeRuntimeFile Include="$(MSBuildThisFileDirectory)..\Redirector\bin\Release\Redirector.bin" />
+      <RequiredNativeRuntimeFile Include="$(MSBuildThisFileDirectory)..\Redirector\bin\Release\nfapi.dll" />
+    </ItemGroup>
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\Redirector\bin\Release\Redirector.bin')"
+           Text="Fresh Release Redirector.bin is required for production publish." />
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\Redirector\bin\Release\nfapi.dll')"
+           Text="Fresh Release nfapi.dll is required for production publish." />
+    <Copy SourceFiles="@(RequiredNativeRuntimeFile)"
+          DestinationFiles="@(RequiredNativeRuntimeFile->'$(PublishDir)bin\%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
   </Target>
 

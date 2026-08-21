@@ -76,8 +76,11 @@ The authorized SOCKS child path feeds its generated client configuration to
 managed byte buffer. It does not create the legacy plaintext `data/last.json`
 transient file.
 
-Release only the protected payload and binaries. Never include the standalone
-key file or external plaintext input. For rotation, repeat the external sealing
+Release only the protected payload and binaries. Production publish requires fresh
+`Redirector/bin/Release/Redirector.bin` and `Redirector/bin/Release/nfapi.dll`,
+then stages both as `bin/Redirector.bin` and `bin/nfapi.dll`; missing native
+inputs fail publish. Never include the standalone key file or external plaintext
+input. For rotation, repeat the external sealing
 step with the rotated settings, freeze and hash the new protected payload, run
 tests/reproducibility/smoke, and release the new artifact. The old plaintext and
 key remain outside source control and release output.
