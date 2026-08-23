@@ -167,6 +167,14 @@ Do **NOT** re-debug or re-investigate:
 - Core ↔ Launcher named pipe authorization flow.
 - Ship Status Unknown for this defect path.
 
+### Production packaging requirement
+
+`bin/v2ray-sn.exe` is a mandatory ProcessMode runtime dependency. Attempt
+`DBG-f3608b` proved that omitting it from the external bundle and manifest fails
+at `SOCKS_BOOTSTRAP` before Redirector/NetFilter initialization. Production
+publishes therefore hash-pin the approved child executable, fail closed when it
+is missing or mismatched, and include it in `core-manifest.json`.
+
 ### Next Action:
 ```text
 NEXT_ACTION = CONTINUE WITH NEXT RELEASE / PROJECT GATE

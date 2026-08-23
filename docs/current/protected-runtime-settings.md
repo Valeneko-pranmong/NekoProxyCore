@@ -61,6 +61,7 @@ dotnet publish NekoProxyCore.Host/NekoProxyCore.Host.csproj \
   --self-contained false \
   -p:NekoProtectedSettingsPayload=<runtime-settings.nkps> \
   -p:NekoProtectedSettingsKeyFile=<runtime-settings.key> \
+  -p:NekoV2rayRuntimeFile=<approved-v2ray-sn.exe> \
   -o <publish-directory>
 ```
 
@@ -71,16 +72,25 @@ exactly `profile-0/server-0` with one PSO2 mode match. A mismatched, tampered,
 malformed, or runtime-incompatible pair blocks publish instead of producing an
 artifact that fails later.
 
+ProcessMode production publish also requires the approved `v2ray-sn.exe` at
+the hash pinned by `NekoProxyCore.Host.csproj`. The publish fails closed when
+that input is missing or its SHA-256 differs, and stages it only as
+`bin/v2ray-sn.exe`. The official `tools/publish-production-core.ps1` command
+creates the complete `core-manifest.json`; the manifest must contain the child
+runtime and its exact SHA-256. `DBG-f3608b` is retained as historical evidence
+for the missing-artifact packaging defect.
+
 The authorized SOCKS child path feeds its generated client configuration to
-`v2ray-sn.exe` over redirected standard input (`run -c stdin:`), then clears the
-managed byte buffer. It does not create the legacy plaintext `data/last.json`
-transient file.
+`v2ray-sn.exe` over redirected standard input (`run -format=json`), then clears
+the managed byte buffer. It does not create the legacy plaintext
+`data/last.json` transient file.
 
 Release only the protected payload and binaries. Production publish requires fresh
-`Redirector/bin/Release/Redirector.bin` and `Redirector/bin/Release/nfapi.dll`,
-then stages both as `bin/Redirector.bin` and `bin/nfapi.dll`; missing native
-inputs fail publish. Never include the standalone key file or external plaintext
-input. For rotation, repeat the external sealing
+`Redirector/bin/Release/Redirector.bin`, `Redirector/bin/Release/nfapi.dll`, and
+the hash-pinned `Storage/v2ray-sn.exe`; it stages them under `bin/` and includes
+them in the complete manifest. Missing or mismatched runtime inputs fail publish.
+Never include the standalone key file or external plaintext input. For rotation,
+repeat the external sealing
 step with the rotated settings, freeze and hash the new protected payload, run
 tests/reproducibility/smoke, and release the new artifact. The old plaintext and
 key remain outside source control and release output.

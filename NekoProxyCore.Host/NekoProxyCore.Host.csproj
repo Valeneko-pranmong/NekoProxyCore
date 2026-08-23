@@ -11,6 +11,7 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <NekoV2rayRuntimeFile Condition="'$(NekoV2rayRuntimeFile)' == ''">$(MSBuildThisFileDirectory)..\Storage\v2ray-sn.exe</NekoV2rayRuntimeFile>
   </PropertyGroup>
 
   <ItemGroup>
@@ -66,7 +67,8 @@
       <Link>i18n\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
-    <Content Include="..\Storage\*">
+    <Content Include="..\Storage\*"
+             Exclude="..\Storage\v2ray-sn.exe">
       <Link>bin\%(Filename)%(Extension)</Link>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
@@ -102,6 +104,33 @@
            Text="Fresh Release nfapi.dll is required for production publish." />
     <Copy SourceFiles="@(RequiredNativeRuntimeFile)"
           DestinationFiles="@(RequiredNativeRuntimeFile->'$(PublishDir)bin\%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Condition="'$(TargetFramework)' == 'net6.0-windows'"
+          Name="StageRequiredV2rayRuntime"
+          BeforeTargets="Publish">
+    <PropertyGroup>
+      <ApprovedV2raySha256>a219f435671fb214c0c530084c65e576fdc1404f40b187b5586e869d2a3e4dff</ApprovedV2raySha256>
+    </PropertyGroup>
+    <Error Condition="'$(NekoV2rayRuntimeFile)' == '' or !Exists('$(NekoV2rayRuntimeFile)')"
+           Text="The approved v2ray-sn.exe input is required for production publish." />
+    <ItemGroup Condition="Exists('$(NekoV2rayRuntimeFile)')">
+      <ApprovedV2rayRuntimeFile Include="$(NekoV2rayRuntimeFile)" />
+    </ItemGroup>
+    <GetFileHash Files="@(ApprovedV2rayRuntimeFile)"
+                 Algorithm="SHA256"
+                 HashEncoding="hex"
+                 Condition="'@(ApprovedV2rayRuntimeFile)' != ''">
+      <Output TaskParameter="Items" ItemName="ApprovedV2rayRuntimeFileWithHash" />
+    </GetFileHash>
+    <PropertyGroup>
+      <ApprovedV2rayRuntimeHash>@(ApprovedV2rayRuntimeFileWithHash->'%(FileHash)')</ApprovedV2rayRuntimeHash>
+    </PropertyGroup>
+    <Error Condition="'$([System.String]::Copy($(ApprovedV2rayRuntimeHash)).ToLowerInvariant())' != '$(ApprovedV2raySha256)'"
+           Text="The v2ray-sn.exe input does not match the approved production hash." />
+    <Copy SourceFiles="@(ApprovedV2rayRuntimeFile)"
+          DestinationFiles="$(PublishDir)bin\v2ray-sn.exe"
           SkipUnchangedFiles="true" />
   </Target>
 

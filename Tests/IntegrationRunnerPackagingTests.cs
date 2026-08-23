@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Xml.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -190,6 +191,154 @@ public sealed class IntegrationRunnerPackagingTests
         Assert.IsTrue(
             document.Descendants("Link").Any(item => item.Value == "bin\\%(Filename)%(Extension)"),
             "Storage runtime files must retain the bin/ layout required by current PSO2 Redirector runtime.");
+        var rootStorageContent = document
+            .Descendants("Content")
+            .Single(item => item.Attribute("Include")?.Value == "..\\Storage\\*");
+        Assert.AreEqual(
+            "..\\Storage\\v2ray-sn.exe",
+            rootStorageContent.Attribute("Exclude")?.Value,
+            "The hash-pinned V2Ray target must be the only owner of bin\\v2ray-sn.exe staging.");
+    }
+
+    [TestMethod]
+    public void ProductionHostPublishStagesOnlyApprovedV2rayRuntimeAndFailsClosed()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var projectPath = Path.Combine(repositoryRoot, "NekoProxyCore.Host", "NekoProxyCore.Host.csproj");
+        var document = XDocument.Load(projectPath);
+        var target = document
+            .Descendants("Target")
+            .SingleOrDefault(item => item.Attribute("Name")?.Value == "StageRequiredV2rayRuntime");
+
+        Assert.IsNotNull(target, "Production publish must explicitly stage the approved V2Ray runtime.");
+        Assert.AreEqual("Publish", target!.Attribute("BeforeTargets")?.Value);
+        Assert.IsTrue(
+            target.Descendants("ApprovedV2rayRuntimeFile")
+                .Any(item => item.Attribute("Include")?.Value == "$(NekoV2rayRuntimeFile)"));
+        Assert.IsTrue(
+            target.Descendants("GetFileHash")
+                .Any(item =>
+                    item.Attribute("Algorithm")?.Value == "SHA256" &&
+                    item.Attribute("HashEncoding")?.Value == "hex" &&
+                    item.Descendants("Output").Any(output =>
+                        output.Attribute("TaskParameter")?.Value == "Items")),
+            "Production publish must hash the exact external V2Ray input before staging it.");
+        Assert.IsTrue(
+            target.Descendants("ApprovedV2rayRuntimeHash")
+                .Any(item => item.Value.Contains("%(FileHash)", StringComparison.Ordinal)),
+            "The approved hash comparison must consume GetFileHash item metadata.");
+        Assert.IsTrue(
+            target.Descendants("ApprovedV2raySha256")
+                .Any(item => item.Value == "a219f435671fb214c0c530084c65e576fdc1404f40b187b5586e869d2a3e4dff"),
+            "The production V2Ray runtime must remain pinned to the approved canonical hash.");
+        Assert.IsTrue(
+            target.Descendants("Error").Any(item =>
+                (item.Attribute("Condition")?.Value ?? string.Empty).Contains(
+                    "!Exists('$(NekoV2rayRuntimeFile)')",
+                    StringComparison.Ordinal)),
+            "A missing V2Ray runtime input must fail the production publish closed.");
+        Assert.IsTrue(
+            target.Descendants("Error").Any(item =>
+                (item.Attribute("Condition")?.Value ?? string.Empty).Contains(
+                    "ApprovedV2rayRuntimeHash",
+                    StringComparison.Ordinal)),
+            "A V2Ray runtime hash mismatch must fail the production publish closed.");
+        Assert.IsTrue(
+            target.Descendants("Copy").Any(item =>
+                (item.Attribute("DestinationFiles")?.Value ?? string.Empty).EndsWith(
+                    "bin\\v2ray-sn.exe",
+                    StringComparison.Ordinal)),
+            "The approved V2Ray runtime must be staged under bin\\v2ray-sn.exe.");
+
+        var approvedRuntime = Path.Combine(repositoryRoot, "Storage", "v2ray-sn.exe");
+        Assert.IsTrue(File.Exists(approvedRuntime), "The approved default V2Ray runtime input is missing.");
+        using var runtimeStream = File.OpenRead(approvedRuntime);
+        using var sha256 = SHA256.Create();
+        var runtimeHash = Convert.ToHexString(sha256.ComputeHash(runtimeStream)).ToLowerInvariant();
+        Assert.AreEqual(
+            "a219f435671fb214c0c530084c65e576fdc1404f40b187b5586e869d2a3e4dff",
+            runtimeHash,
+            "The tracked V2Ray runtime input must match the approved canonical bytes.");
+    }
+
+    [TestMethod]
+    public void ProductionPublishScriptCreatesCompleteManifestIncludingV2ray()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var scriptPath = Path.Combine(repositoryRoot, "tools", "publish-production-core.ps1");
+
+        Assert.IsTrue(File.Exists(scriptPath), "The official production publish script is missing.");
+        var script = File.ReadAllText(scriptPath);
+        Assert.IsTrue(script.Contains("NekoV2rayRuntimeFile", StringComparison.Ordinal));
+        Assert.IsTrue(script.Contains(
+            "$V2rayRuntimeFile = Join-Path $repositoryRoot 'Storage\\v2ray-sn.exe'",
+            StringComparison.Ordinal));
+        Assert.IsTrue(script.Contains("core-manifest.json", StringComparison.Ordinal));
+        Assert.IsTrue(script.Contains("bin/v2ray-sn.exe", StringComparison.Ordinal));
+        Assert.IsTrue(script.Contains("source_commit", StringComparison.Ordinal));
+        Assert.IsTrue(script.Contains("file_count", StringComparison.Ordinal));
+        Assert.IsTrue(script.Contains("Get-FileHash", StringComparison.Ordinal));
+        Assert.IsTrue(script.Contains(
+            "git -C $repositoryRoot status --porcelain",
+            StringComparison.Ordinal));
+        Assert.IsTrue(script.Contains("Production publish requires a clean Core worktree.", StringComparison.Ordinal));
+        Assert.IsTrue(script.Contains("Source changed during production publish.", StringComparison.Ordinal));
+        Assert.IsTrue(script.Contains("$requiredManifestFiles", StringComparison.Ordinal));
+        Assert.IsTrue(script.Contains("runtime-settings.key", StringComparison.Ordinal));
+        Assert.IsTrue(script.Contains("settings.json", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void ProductionHostPublishFailsClosedWhenV2rayRuntimeIsMissing()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var temporaryRoot = Path.Combine(Path.GetTempPath(), $"NekoMissingV2ray-{Guid.NewGuid():N}");
+
+        try
+        {
+            var result = RunV2rayStageTarget(
+                repositoryRoot,
+                Path.Combine(temporaryRoot, "missing-v2ray-sn.exe"),
+                Path.Combine(temporaryRoot, "publish"));
+
+            Assert.AreNotEqual(0, result.ExitCode, "Missing V2Ray input must fail production staging.");
+            StringAssert.Contains(
+                result.Output,
+                "The approved v2ray-sn.exe input is required for production publish.");
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryRoot))
+                Directory.Delete(temporaryRoot, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void ProductionHostPublishFailsClosedWhenV2rayRuntimeHashIsWrong()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var temporaryRoot = Path.Combine(Path.GetTempPath(), $"NekoWrongV2ray-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryRoot);
+        var wrongRuntime = Path.Combine(temporaryRoot, "v2ray-sn.exe");
+        File.WriteAllBytes(wrongRuntime, new byte[] { 0x4e, 0x4f });
+
+        try
+        {
+            var result = RunV2rayStageTarget(
+                repositoryRoot,
+                wrongRuntime,
+                Path.Combine(temporaryRoot, "publish"));
+
+            Assert.AreNotEqual(0, result.ExitCode, "Mismatched V2Ray input must fail production staging.");
+            StringAssert.Contains(
+                result.Output,
+                "The v2ray-sn.exe input does not match the approved production hash.");
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryRoot))
+                Directory.Delete(temporaryRoot, recursive: true);
+        }
     }
 
     [TestMethod]
@@ -299,6 +448,38 @@ public sealed class IntegrationRunnerPackagingTests
                 StringComparison.OrdinalIgnoreCase))
             .Attribute("AdditionalProperties")
             ?.Value;
+
+    private static (int ExitCode, string Output) RunV2rayStageTarget(
+        string repositoryRoot,
+        string runtimePath,
+        string publishDirectory)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "dotnet",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        startInfo.ArgumentList.Add("msbuild");
+        startInfo.ArgumentList.Add(Path.Combine(
+            repositoryRoot,
+            "NekoProxyCore.Host",
+            "NekoProxyCore.Host.csproj"));
+        startInfo.ArgumentList.Add("-t:StageRequiredV2rayRuntime");
+        startInfo.ArgumentList.Add("-p:TargetFramework=net6.0-windows");
+        startInfo.ArgumentList.Add($"-p:PublishDir={publishDirectory}{Path.DirectorySeparatorChar}");
+        startInfo.ArgumentList.Add($"-p:NekoV2rayRuntimeFile={runtimePath}");
+
+        using var process = Process.Start(startInfo);
+        Assert.IsNotNull(process);
+        var standardOutput = process!.StandardOutput.ReadToEnd();
+        var standardError = process.StandardError.ReadToEnd();
+        Assert.IsTrue(process.WaitForExit(60000), "V2Ray staging probe timed out.");
+
+        return (process.ExitCode, standardOutput + standardError);
+    }
 
     private static string FindRepositoryRoot()
     {
