@@ -12,6 +12,7 @@ public sealed class CoreTelemetryAggregator : ICoreHealthProvider
     private readonly IProxyRuntime _runtime;
     private readonly ITelemetryPublisher _publisher;
     private readonly INetFilterStatisticsProvider? _statisticsProvider;
+    private readonly IProxyRttProducer? _rttProducer;
     private readonly TimeSpan _interval;
     private readonly Stopwatch _uptimeStopwatch;
 
@@ -19,11 +20,13 @@ public sealed class CoreTelemetryAggregator : ICoreHealthProvider
         IProxyRuntime runtime,
         ITelemetryPublisher publisher,
         TimeSpan? interval = null,
-        INetFilterStatisticsProvider? statisticsProvider = null)
+        INetFilterStatisticsProvider? statisticsProvider = null,
+        IProxyRttProducer? rttProducer = null)
     {
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _publisher = publisher ?? throw new ArgumentNullException(nameof(publisher));
         _statisticsProvider = statisticsProvider;
+        _rttProducer = rttProducer;
         _interval = interval ?? TimeSpan.FromMilliseconds(1000);
         _uptimeStopwatch = Stopwatch.StartNew();
     }
@@ -47,6 +50,19 @@ public sealed class CoreTelemetryAggregator : ICoreHealthProvider
             }
         }
 
+        int? proxyRtt = null;
+        if (_rttProducer != null && isConnected)
+        {
+            try
+            {
+                proxyRtt = await _rttProducer.GetRttAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Fail-safe
+            }
+        }
+
         return new CoreHealthSnapshotPayload(
             CoreState: "running",
             ProxyState: proxyState,
@@ -65,7 +81,8 @@ public sealed class CoreTelemetryAggregator : ICoreHealthProvider
             V2RayRunning: isConnected,
             LocalSocksRunning: isConnected,
             ShadowsocksConnected: isConnected,
-            DroppedTelemetryEvents: _publisher.DroppedEventsCount);
+            DroppedTelemetryEvents: _publisher.DroppedEventsCount,
+            ProxyRttMs: proxyRtt);
     }
 
     public async Task RunAsync(CancellationToken cancellationToken)

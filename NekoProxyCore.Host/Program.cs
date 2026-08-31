@@ -68,10 +68,12 @@ internal static class Program
                     configurationCatalog,
                     diagnostics: diagnostics);
                 var statisticsProvider = new NetchRedirectorStatisticsProvider();
+                var rttProducer = new LegacyProxyRttProducer();
                 var telemetryAggregator = new CoreTelemetryAggregator(
                     runtime,
                     telemetryPublisher,
-                    statisticsProvider: statisticsProvider);
+                    statisticsProvider: statisticsProvider,
+                    rttProducer: rttProducer);
                 var telemetryServer = new HeadlessTelemetryServer(telemetryBuffer, diagnostics: diagnostics);
 
                 telemetryPublisher.PublishLifecycle("core.started", "core");

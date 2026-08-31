@@ -20,4 +20,5 @@ public sealed record CoreHealthSnapshotPayload(
     [property: JsonPropertyName("v2ray_running")] bool V2RayRunning,
     [property: JsonPropertyName("local_socks_running")] bool LocalSocksRunning,
     [property: JsonPropertyName("shadowsocks_connected")] bool ShadowsocksConnected,
-    [property: JsonPropertyName("dropped_telemetry_events")] ulong DroppedTelemetryEvents);
+    [property: JsonPropertyName("dropped_telemetry_events")] ulong DroppedTelemetryEvents,
+    [property: JsonPropertyName("proxy_rtt_ms")] int? ProxyRttMs);
