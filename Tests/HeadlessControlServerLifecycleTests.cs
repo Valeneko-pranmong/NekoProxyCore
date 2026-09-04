@@ -22,7 +22,12 @@ public sealed class HeadlessControlServerLifecycleTests
     {
         var runtime = new RecordingRuntime(ProxyStatusKind.Stopped);
         using var shutdown = new HostShutdownSignal();
-        var server = new HeadlessControlServer(runtime, new CoreChallengeService(), shutdown, UniquePipeName());
+        var server = new HeadlessControlServer(
+            runtime,
+            new CoreChallengeService(),
+            shutdown,
+            unchecked((uint)Environment.ProcessId),
+            UniquePipeName());
         var runTask = server.RunAsync(shutdown.Token);
 
         var response = await ExchangeAsync(server.PipeNameForTesting, ShutdownRequest);
@@ -38,7 +43,12 @@ public sealed class HeadlessControlServerLifecycleTests
     {
         var runtime = new RecordingRuntime(ProxyStatusKind.Running);
         using var shutdown = new HostShutdownSignal();
-        var server = new HeadlessControlServer(runtime, new CoreChallengeService(), shutdown, UniquePipeName());
+        var server = new HeadlessControlServer(
+            runtime,
+            new CoreChallengeService(),
+            shutdown,
+            unchecked((uint)Environment.ProcessId),
+            UniquePipeName());
         var runTask = server.RunAsync(shutdown.Token);
 
         var response = await ExchangeAsync(server.PipeNameForTesting, ShutdownRequest);
@@ -54,7 +64,12 @@ public sealed class HeadlessControlServerLifecycleTests
     {
         var runtime = new RecordingRuntime(ProxyStatusKind.Running);
         using var shutdown = new HostShutdownSignal();
-        var server = new HeadlessControlServer(runtime, new CoreChallengeService(), shutdown, UniquePipeName());
+        var server = new HeadlessControlServer(
+            runtime,
+            new CoreChallengeService(),
+            shutdown,
+            unchecked((uint)Environment.ProcessId),
+            UniquePipeName());
         var runTask = server.RunAsync(shutdown.Token);
 
         await using var client = await ConnectAsync(server.PipeNameForTesting);
@@ -85,6 +100,7 @@ public sealed class HeadlessControlServerLifecycleTests
             challenges,
             shutdown,
             catalog,
+            unchecked((uint)Environment.ProcessId),
             UniquePipeName());
         var runTask = server.RunAsync(shutdown.Token);
 
@@ -121,6 +137,7 @@ public sealed class HeadlessControlServerLifecycleTests
             runtime,
             new CoreChallengeService(),
             shutdown,
+            unchecked((uint)Environment.ProcessId),
             UniquePipeName());
         var runTask = server.RunAsync(shutdown.Token);
 
@@ -178,6 +195,7 @@ public sealed class HeadlessControlServerLifecycleTests
             new CoreChallengeService(),
             shutdown,
             new BoundaryCatalog(candidateCount),
+            unchecked((uint)Environment.ProcessId),
             UniquePipeName());
         var runTask = server.RunAsync(shutdown.Token);
 
@@ -246,6 +264,7 @@ public sealed class HeadlessControlServerLifecycleTests
             new CoreChallengeService(),
             shutdown,
             new ValidationCatalog(relationshipValid, processModeMatchCount, valid),
+            unchecked((uint)Environment.ProcessId),
             UniquePipeName());
         var runTask = server.RunAsync(shutdown.Token);
 
@@ -281,6 +300,7 @@ public sealed class HeadlessControlServerLifecycleTests
             new CoreChallengeService(),
             shutdown,
             new ThrowingCatalog(),
+            unchecked((uint)Environment.ProcessId),
             UniquePipeName());
         var runTask = server.RunAsync(shutdown.Token);
 
@@ -317,6 +337,7 @@ public sealed class HeadlessControlServerLifecycleTests
             new CoreChallengeService(),
             shutdown,
             new InvalidResultCatalog(),
+            unchecked((uint)Environment.ProcessId),
             UniquePipeName());
         var runTask = server.RunAsync(shutdown.Token);
 
@@ -348,7 +369,12 @@ public sealed class HeadlessControlServerLifecycleTests
     {
         var runtime = new RecordingRuntime(ProxyStatusKind.Running, stopSucceeds: false);
         using var shutdown = new HostShutdownSignal();
-        var server = new HeadlessControlServer(runtime, new CoreChallengeService(), shutdown, UniquePipeName());
+        var server = new HeadlessControlServer(
+            runtime,
+            new CoreChallengeService(),
+            shutdown,
+            unchecked((uint)Environment.ProcessId),
+            UniquePipeName());
         var runTask = server.RunAsync(shutdown.Token);
 
         var response = await ExchangeAsync(server.PipeNameForTesting, ShutdownRequest);

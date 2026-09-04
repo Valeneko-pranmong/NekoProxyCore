@@ -14,21 +14,27 @@ internal sealed class HeadlessControlServer
     private readonly HostShutdownSignal _shutdown;
     private readonly IProcessModeConfigurationCatalog _configurationCatalog;
     private readonly ICoreDiagnosticSink _diagnostics;
+    private readonly IControlPipeClientProcessIdProvider _clientProcessIdProvider;
+    private readonly uint _launcherProcessId;
     private readonly string _pipeName;
 
     public HeadlessControlServer(
         IProxyRuntime runtime,
         ICoreChallengeService challenges,
         HostShutdownSignal shutdown,
+        uint launcherProcessId,
         string pipeName = PipeName,
-        ICoreDiagnosticSink? diagnostics = null)
+        ICoreDiagnosticSink? diagnostics = null,
+        IControlPipeClientProcessIdProvider? clientProcessIdProvider = null)
         : this(
             runtime,
             challenges,
             shutdown,
             UnavailableProcessModeConfigurationCatalog.Instance,
+            launcherProcessId,
             pipeName,
-            diagnostics)
+            diagnostics,
+            clientProcessIdProvider)
     {
     }
 
@@ -37,14 +43,21 @@ internal sealed class HeadlessControlServer
         ICoreChallengeService challenges,
         HostShutdownSignal shutdown,
         IProcessModeConfigurationCatalog configurationCatalog,
+        uint launcherProcessId,
         string pipeName = PipeName,
-        ICoreDiagnosticSink? diagnostics = null)
+        ICoreDiagnosticSink? diagnostics = null,
+        IControlPipeClientProcessIdProvider? clientProcessIdProvider = null)
     {
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _challenges = challenges ?? throw new ArgumentNullException(nameof(challenges));
         _shutdown = shutdown ?? throw new ArgumentNullException(nameof(shutdown));
         _configurationCatalog = configurationCatalog ??
             throw new ArgumentNullException(nameof(configurationCatalog));
+        _launcherProcessId = launcherProcessId != 0
+            ? launcherProcessId
+            : throw new ArgumentOutOfRangeException(nameof(launcherProcessId));
+        _clientProcessIdProvider = clientProcessIdProvider ??
+            WindowsControlPipeClientProcessIdProvider.Instance;
         _diagnostics = diagnostics ?? NullCoreDiagnosticSink.Instance;
         _pipeName = string.IsNullOrWhiteSpace(pipeName)
             ? throw new ArgumentException("A pipe name is required.", nameof(pipeName))
@@ -68,6 +81,13 @@ internal sealed class HeadlessControlServer
                 await pipe.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
                 try
                 {
+                    if (!_clientProcessIdProvider.TryGetClientProcessId(pipe, out var clientProcessId) ||
+                        clientProcessId != _launcherProcessId)
+                    {
+                        pipe.Disconnect();
+                        continue;
+                    }
+
                     await ServeClientAsync(pipe, cancellationToken).ConfigureAwait(false);
                 }
                 catch (IOException)

@@ -10,8 +10,11 @@ namespace NekoProxyCore.Host;
 
 internal static class Program
 {
-    private static async Task<int> Main()
+    private static async Task<int> Main(string[] args)
     {
+        if (!LauncherProcessBinding.TryParseArguments(args, out var launcherProcessId))
+            return 2;
+
 #if !WINDOWS
         await Task.CompletedTask;
         return 2;
@@ -66,6 +69,7 @@ internal static class Program
                     new CoreChallengeService(),
                     shutdown,
                     configurationCatalog,
+                    launcherProcessId,
                     diagnostics: diagnostics);
                 var statisticsProvider = new NetchRedirectorStatisticsProvider();
                 var rttProducer = new LegacyProxyRttProducer();
