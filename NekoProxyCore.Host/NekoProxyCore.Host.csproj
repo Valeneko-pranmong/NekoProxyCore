@@ -20,7 +20,7 @@
     <ProjectReference Include="..\NekoProxyCore.Legacy\NekoProxyCore.Legacy.csproj" />
     <ProjectReference Condition="'$(TargetFramework)' == 'net6.0-windows'"
                       Include="..\Netch\Netch.csproj"
-                      AdditionalProperties="HeadlessCoreBuild=true;Platform=x64;GenerateDependencyFile=false" />
+                      AdditionalProperties="HeadlessCoreBuild=true;Platform=x64;GenerateDependencyFile=false;RuntimeIdentifier=win-x64" />
   </ItemGroup>
 
   <ItemGroup Condition="Exists('Authorization\production-public-keys.json')">

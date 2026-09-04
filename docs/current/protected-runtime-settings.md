@@ -58,7 +58,7 @@ Build A and Build B with the exact same external files:
 ```text
 dotnet publish NekoProxyCore.Host/NekoProxyCore.Host.csproj \
   -c Release -f net6.0-windows -r win-x64 -p:Platform=x64 \
-  --self-contained false \
+  --self-contained true \
   -p:NekoProtectedSettingsPayload=<runtime-settings.nkps> \
   -p:NekoProtectedSettingsKeyFile=<runtime-settings.key> \
   -p:NekoV2rayRuntimeFile=<approved-v2ray-sn.exe> \

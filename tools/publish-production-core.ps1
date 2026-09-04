@@ -80,7 +80,7 @@ $publishArguments = @(
     '-f', 'net6.0-windows',
     '-r', 'win-x64',
     '-p:Platform=x64',
-    '--self-contained', 'false',
+    '--self-contained', 'true',
     "-p:NekoProtectedSettingsPayload=$payloadPath",
     "-p:NekoProtectedSettingsKeyFile=$keyPath",
     "-p:NekoV2rayRuntimeFile=$v2rayPath",

@@ -269,6 +269,9 @@ public sealed class IntegrationRunnerPackagingTests
 
         Assert.IsTrue(File.Exists(scriptPath), "The official production publish script is missing.");
         var script = File.ReadAllText(scriptPath);
+        Assert.IsTrue(script.Contains("'--self-contained', 'true'", StringComparison.Ordinal));
+        Assert.IsFalse(script.Contains("'--self-contained', 'false'", StringComparison.Ordinal));
+        Assert.IsFalse(script.Contains("--self-contained false", StringComparison.Ordinal));
         Assert.IsTrue(script.Contains("NekoV2rayRuntimeFile", StringComparison.Ordinal));
         Assert.IsTrue(script.Contains(
             "$V2rayRuntimeFile = Join-Path $repositoryRoot 'Storage\\v2ray-sn.exe'",
@@ -358,7 +361,7 @@ public sealed class IntegrationRunnerPackagingTests
         var legacyProperties = FindNetchProjectReferenceProperties(legacy);
 
         Assert.AreEqual(
-            "HeadlessCoreBuild=true;Platform=x64;GenerateDependencyFile=false",
+            "HeadlessCoreBuild=true;Platform=x64;GenerateDependencyFile=false;RuntimeIdentifier=win-x64",
             hostProperties,
             "The direct Host-to-Netch publish graph must disable unused legacy dependency generation.");
         Assert.AreEqual(

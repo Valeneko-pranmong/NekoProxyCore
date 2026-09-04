@@ -55,14 +55,13 @@ dotnet publish NekoProxyCore.Host/NekoProxyCore.Host.csproj \
   -f net6.0-windows \
   -r win-x64 \
   -p:Platform=x64 \
-  --self-contained false \
+  --self-contained true \
   -o TestResults/canonical-release \
   --nologo \
   -m:1
 ```
 
-Target runtime ต้องมี .NET 6 Windows Desktop Runtime x64 เพราะ bundle เป็น
-framework-dependent
+Production Core bundle เป็น self-contained win-x64 ทำให้ target users ไม่จำเป็นต้องติดตั้ง .NET 6 Windows Desktop Runtime เพิ่มเติม
 
 ## Security rules
 
