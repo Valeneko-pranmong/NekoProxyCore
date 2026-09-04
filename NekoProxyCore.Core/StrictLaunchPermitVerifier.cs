@@ -74,7 +74,7 @@ public sealed class InMemoryPermitReplayStore : IPermitReplayStore
     }
 }
 
-/// <summary>Strict NEKO-AUTH-LITE/lite-v1 compact JWT RS256 verifier.</summary>
+/// <summary>Strict runtime-config-v1 compact JWT RS256 verifier.</summary>
 public sealed class StrictLaunchPermitVerifier : IPermitVerifier
 {
     private const int MaximumPermitLength = 4096;
@@ -84,11 +84,13 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
     private static readonly HashSet<string> HeaderNames = new(StringComparer.Ordinal) { "alg", "typ", "kid" };
     private static readonly HashSet<string> ClaimNames = new(StringComparer.Ordinal)
     {
-        "iss", "aud", "sub", "product", "scope", "challenge", "jti", "iat", "nbf", "exp"
+        "iss", "aud", "sub", "product", "scope", "challenge", "jti", "iat", "nbf", "exp",
+        "runtime_config_version", "runtime_config_sha256"
     };
     private static readonly HashSet<string> RequiredClaimNames = new(StringComparer.Ordinal)
     {
-        "iss", "aud", "sub", "product", "scope", "challenge", "jti", "iat", "exp"
+        "iss", "aud", "sub", "product", "scope", "challenge", "jti", "iat", "exp",
+        "runtime_config_version", "runtime_config_sha256"
     };
 
     private readonly ITrustedPublicKeyResolver _keyResolver;
@@ -121,17 +123,19 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
     public Task<ProxyError?> VerifyAsync(
         SensitivePermit permit,
         string challenge,
+        RuntimeProxyConfig runtimeConfig,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(permit);
         ArgumentNullException.ThrowIfNull(challenge);
+        ArgumentNullException.ThrowIfNull(runtimeConfig);
         cancellationToken.ThrowIfCancellationRequested();
 
         var currentStage = CoreDiagnosticStage.PermitParse;
         try
         {
             return Task.FromResult(Verify(
-                permit, challenge, cancellationToken, ref currentStage));
+                permit, challenge, runtimeConfig, cancellationToken, ref currentStage));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -148,6 +152,7 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
     private ProxyError? Verify(
         SensitivePermit permit,
         string challenge,
+        RuntimeProxyConfig runtimeConfig,
         CancellationToken cancellationToken,
         ref CoreDiagnosticStage currentStage)
     {
@@ -223,6 +228,10 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
             !IsChallenge(permitChallenge) ||
             !TryGetInt64(claims, "iat", out var issuedAt) ||
             !TryGetInt64(claims, "exp", out var expiresAt) ||
+            !TryGetInt64(claims, "runtime_config_version", out var configVersion) ||
+            configVersion is < 1 or > RuntimeProxyConfig.MaxSafeInteger ||
+            !TryGetString(claims, "runtime_config_sha256", out var configDigest) ||
+            !IsLowercaseSha256(configDigest) ||
             issuedAt > long.MaxValue - LifetimeSeconds ||
             expiresAt != issuedAt + LifetimeSeconds)
         {
@@ -271,6 +280,13 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
             notBefore > now + ClockSkewSeconds ||
             expiresAt <= now - ClockSkewSeconds)
             return Error(ProxyErrorCode.AuthorizationExpired, "Online authorization expired.");
+
+        if (runtimeConfig.IssuedAt > now + ClockSkewSeconds ||
+            runtimeConfig.ExpiresAt <= now - ClockSkewSeconds)
+            return Error(ProxyErrorCode.AuthorizationExpired, "Online authorization expired.");
+
+        if (configVersion != runtimeConfig.ConfigVersion || !ConfigDigestMatches(runtimeConfig, configDigest))
+            return Invalid();
 
         currentStage = CoreDiagnosticStage.TargetChallengeBind;
         if (!FixedTimeAsciiEquals(permitChallenge, challenge))
@@ -409,6 +425,23 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
     private static bool IsChallenge(string value) =>
         value.Length == 43 && value.All(character =>
             IsAsciiLetterOrDigit(character) || character is '-' or '_');
+
+    private static bool IsLowercaseSha256(string value) =>
+        value.Length == 64 && value.All(character => character is >= '0' and <= '9' or >= 'a' and <= 'f');
+
+    private static bool ConfigDigestMatches(RuntimeProxyConfig runtimeConfig, string expectedHex)
+    {
+        byte[] canonical = runtimeConfig.CanonicalBytes();
+        byte[] expected;
+        try
+        {
+            expected = Convert.FromHexString(expectedHex);
+            var actual = SHA256.HashData(canonical);
+            try { return CryptographicOperations.FixedTimeEquals(actual, expected); }
+            finally { CryptographicOperations.ZeroMemory(actual); CryptographicOperations.ZeroMemory(expected); }
+        }
+        finally { CryptographicOperations.ZeroMemory(canonical); }
+    }
 
     private static bool IsAsciiLetterOrDigit(char value) =>
         value is >= '0' and <= '9' or >= 'A' and <= 'Z' or >= 'a' and <= 'z';

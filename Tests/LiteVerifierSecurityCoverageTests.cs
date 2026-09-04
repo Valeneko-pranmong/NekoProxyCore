@@ -27,11 +27,13 @@ public sealed class LiteVerifierSecurityCoverageTests
     [DataRow("jti")]
     [DataRow("iat")]
     [DataRow("exp")]
+    [DataRow("runtime_config_version")]
+    [DataRow("runtime_config_sha256")]
     public async Task EveryRequiredLiteClaimIsRequired(string claimName)
     {
         using var fixture = PermitFixture.Create();
         var error = await fixture.CreateVerifier().VerifyAsync(
-            fixture.CreatePermitWithoutClaims(claimName), Challenge, CancellationToken.None);
+            fixture.CreatePermitWithoutClaims(claimName), Challenge, fixture.RuntimeConfig, CancellationToken.None);
 
         Assert.AreEqual(ProxyErrorCode.AuthorizationInvalid, error!.Code);
     }
@@ -43,9 +45,9 @@ public sealed class LiteVerifierSecurityCoverageTests
         var verifier = fixture.CreateVerifier();
 
         var noneAlgorithm = await verifier.VerifyAsync(
-            fixture.CreatePermit(algorithm: "none"), Challenge, CancellationToken.None);
+            fixture.CreatePermit(algorithm: "none"), Challenge, fixture.RuntimeConfig, CancellationToken.None);
         var wrongType = await verifier.VerifyAsync(
-            fixture.CreatePermit(type: "JWT"), Challenge, CancellationToken.None);
+            fixture.CreatePermit(type: "JWT"), Challenge, fixture.RuntimeConfig, CancellationToken.None);
 
         Assert.AreEqual(ProxyErrorCode.AuthorizationInvalid, noneAlgorithm!.Code);
         Assert.AreEqual(ProxyErrorCode.AuthorizationInvalid, wrongType!.Code);
@@ -57,7 +59,7 @@ public sealed class LiteVerifierSecurityCoverageTests
         using var fixture = PermitFixture.Create();
         var permit = fixture.CreatePermit(new() { ["exp"] = Now + 31 });
 
-        var error = await fixture.CreateVerifier().VerifyAsync(permit, Challenge, CancellationToken.None);
+        var error = await fixture.CreateVerifier().VerifyAsync(permit, Challenge, fixture.RuntimeConfig, CancellationToken.None);
 
         Assert.AreEqual(ProxyErrorCode.AuthorizationInvalid, error!.Code);
     }
@@ -79,7 +81,7 @@ public sealed class LiteVerifierSecurityCoverageTests
         foreach (var compact in malformedPermits)
         {
             Assert.IsTrue(SensitivePermit.TryCreate(compact, 5000, out var permit));
-            var error = await verifier.VerifyAsync(permit!, Challenge, CancellationToken.None);
+            var error = await verifier.VerifyAsync(permit!, Challenge, fixture.RuntimeConfig, CancellationToken.None);
             Assert.AreEqual(ProxyErrorCode.AuthorizationInvalid, error!.Code);
         }
     }
@@ -99,8 +101,8 @@ public sealed class LiteVerifierSecurityCoverageTests
         Assert.IsTrue(SensitivePermit.TryCreate(tamperedHeader, 4096, out var headerPermit));
         Assert.IsTrue(SensitivePermit.TryCreate(tamperedPayload, 4096, out var payloadPermit));
 
-        var headerError = await fixture.CreateVerifier().VerifyAsync(headerPermit!, Challenge, CancellationToken.None);
-        var payloadError = await fixture.CreateVerifier().VerifyAsync(payloadPermit!, Challenge, CancellationToken.None);
+        var headerError = await fixture.CreateVerifier().VerifyAsync(headerPermit!, Challenge, fixture.RuntimeConfig, CancellationToken.None);
+        var payloadError = await fixture.CreateVerifier().VerifyAsync(payloadPermit!, Challenge, fixture.RuntimeConfig, CancellationToken.None);
 
         Assert.AreEqual(ProxyErrorCode.AuthorizationInvalid, headerError!.Code);
         Assert.AreEqual(ProxyErrorCode.AuthorizationInvalid, payloadError!.Code);
@@ -122,6 +124,10 @@ public sealed class LiteVerifierSecurityCoverageTests
         }
 
         public static PermitFixture Create() => new(RSA.Create(3072));
+
+        public RuntimeProxyConfig RuntimeConfig => new(
+            1, 18, "japan-vps-1", "127.0.0.1", 8389, "shadowsocks", "aes-256-gcm",
+            new SensitiveRuntimeCredential("SENTINEL_PROXY_SECRET_42"), Now - 1, Now + 119);
 
         public StrictLaunchPermitVerifier CreateVerifier() => new(
             _resolver,
@@ -178,8 +184,13 @@ public sealed class LiteVerifierSecurityCoverageTests
             return signingInput + "." + Base64Url(signature);
         }
 
-        private static Dictionary<string, object> CreateClaims() => new()
+        private Dictionary<string, object> CreateClaims()
         {
+            var canonical = RuntimeConfig.CanonicalBytes();
+            try
+            {
+                return new()
+                {
             ["iss"] = "neko-backend",
             ["aud"] = "neko-proxy-core",
             ["sub"] = "synthetic-subject",
@@ -189,8 +200,13 @@ public sealed class LiteVerifierSecurityCoverageTests
             ["jti"] = "security-coverage-jti",
             ["iat"] = Now - 1,
             ["nbf"] = Now - 1,
-            ["exp"] = Now + 29
-        };
+                    ["exp"] = Now + 29,
+                    ["runtime_config_version"] = RuntimeConfig.ConfigVersion,
+                    ["runtime_config_sha256"] = Convert.ToHexString(SHA256.HashData(canonical)).ToLowerInvariant()
+                };
+            }
+            finally { CryptographicOperations.ZeroMemory(canonical); }
+        }
     }
 
     private sealed class FixedClock : ITrustedUtcClock

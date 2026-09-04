@@ -49,7 +49,7 @@ public sealed class ChallengePermitStartAuthorizer : IProxyStartAuthorizer
     public async Task<ProxyError?> AuthorizeAsync(ProxyStartRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (request.Permit is null || string.IsNullOrEmpty(request.AdmittedChallenge))
+        if (request.Permit is null || string.IsNullOrEmpty(request.AdmittedChallenge) || request.RuntimeConfig is null)
         {
             return new ProxyError(
                 ProxyErrorCode.AuthorizationRequired, "Online authorization is required.");
@@ -60,6 +60,7 @@ public sealed class ChallengePermitStartAuthorizer : IProxyStartAuthorizer
             return await _permitVerifier.VerifyAsync(
                     request.Permit,
                     request.AdmittedChallenge,
+                    request.RuntimeConfig,
                     request.CancellationToken)
                 .ConfigureAwait(false);
         }

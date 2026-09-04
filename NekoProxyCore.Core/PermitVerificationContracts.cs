@@ -96,6 +96,7 @@ public interface IPermitVerifier
     Task<ProxyError?> VerifyAsync(
         SensitivePermit permit,
         string challenge,
+        RuntimeProxyConfig runtimeConfig,
         CancellationToken cancellationToken);
 }
 

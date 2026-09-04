@@ -40,6 +40,7 @@ public sealed class AuthorizationDiagnosticTests
         Assert.IsNull(await rollbackVerifier.VerifyAsync(
             fixture.CreatePermit(new() { ["jti"] = "rollback-jti-1" }),
             Challenge,
+            fixture.RuntimeConfig,
             CancellationToken.None));
         // The current policy is intentionally strict: even a single 100 ns wall-clock step
         // backwards fails closed. Diagnostics distinguish this from an untrusted clock.
@@ -78,7 +79,8 @@ public sealed class AuthorizationDiagnosticTests
             configuration,
             CorrelationId,
             permit: permit,
-            admittedChallenge: Challenge));
+            admittedChallenge: Challenge,
+            runtimeConfig: CreateRuntimeConfig()));
         Assert.AreEqual(ProxyErrorCode.AuthorizationUnavailable, authorizerError!.Code);
 
         var rawRuntime = new HeadlessRuntimeCoordinator(
@@ -160,7 +162,8 @@ public sealed class AuthorizationDiagnosticTests
             fixture.Configuration,
             CorrelationId,
             permit: fixture.CreatePermit(),
-            admittedChallenge: Challenge));
+            admittedChallenge: Challenge,
+            runtimeConfig: CreateRuntimeConfig()));
 
         Assert.IsTrue(result.Succeeded);
         Assert.AreEqual(1, engine.StartCount);
@@ -187,6 +190,7 @@ public sealed class AuthorizationDiagnosticTests
             var error = await fixture.CreateVerifier().VerifyAsync(
                 fixture.CreatePermit(overrides),
                 Challenge,
+                fixture.RuntimeConfig,
                 CancellationToken.None);
             Assert.AreEqual(ProxyErrorCode.AuthorizationInvalid, error!.Code);
         }
@@ -197,13 +201,14 @@ public sealed class AuthorizationDiagnosticTests
                 ["jti"] = "retired-binding-jti"
             }),
             Challenge,
+            fixture.RuntimeConfig,
             CancellationToken.None);
         Assert.IsNull(retiredBindingClaims);
 
         var expired = await fixture.CreateVerifier(
                 clock: new FixedClock(DateTimeOffset.FromUnixTimeSeconds(Now + 31)))
             .VerifyAsync(
-                fixture.CreatePermit(), Challenge, CancellationToken.None);
+                fixture.CreatePermit(), Challenge, fixture.RuntimeConfig, CancellationToken.None);
         Assert.AreEqual(ProxyErrorCode.AuthorizationExpired, expired!.Code);
     }
 
@@ -237,8 +242,19 @@ public sealed class AuthorizationDiagnosticTests
         ProxyConfiguration _)
     {
         var error = await verifier.VerifyAsync(
-            permit, Challenge, CancellationToken.None);
+            permit, Challenge, CreateRuntimeConfig(), CancellationToken.None);
         Assert.AreEqual(ProxyErrorCode.AuthorizationUnavailable, error!.Code);
+    }
+
+    private static RuntimeProxyConfig CreateRuntimeConfig() => new(
+        1, 18, "japan-vps-1", "127.0.0.1", 8389, "shadowsocks", "aes-256-gcm",
+        new SensitiveRuntimeCredential("SENTINEL_PROXY_SECRET_42"), Now - 1, Now + 119);
+
+    private static string RuntimeConfigDigest(RuntimeProxyConfig config)
+    {
+        var bytes = config.CanonicalBytes();
+        try { return Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(); }
+        finally { CryptographicOperations.ZeroMemory(bytes); }
     }
 
     private static ProxyConfiguration CreateConfiguration() => new(
@@ -291,6 +307,7 @@ public sealed class AuthorizationDiagnosticTests
         }
 
         public ProxyConfiguration Configuration { get; }
+        public RuntimeProxyConfig RuntimeConfig => CreateRuntimeConfig();
         public int KeySize => _signer.KeySize;
         public string? LastCompactPermit { get; private set; }
 
@@ -320,7 +337,9 @@ public sealed class AuthorizationDiagnosticTests
                 ["jti"] = "synthetic-jti-marker",
                 ["iat"] = Now - 1,
                 ["nbf"] = Now - 1,
-                ["exp"] = Now + 29
+                ["exp"] = Now + 29,
+                ["runtime_config_version"] = RuntimeConfig.ConfigVersion,
+                ["runtime_config_sha256"] = RuntimeConfigDigest(RuntimeConfig)
             };
             if (overrides != null)
             {
@@ -404,6 +423,7 @@ public sealed class AuthorizationDiagnosticTests
         public Task<ProxyError?> VerifyAsync(
             SensitivePermit permit,
             string challenge,
+            RuntimeProxyConfig runtimeConfig,
             CancellationToken cancellationToken) =>
             throw new InvalidOperationException("permit-secret-marker jwt-secret-marker");
     }

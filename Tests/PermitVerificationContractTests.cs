@@ -62,13 +62,15 @@ public sealed class PermitVerificationContractTests
                 targetPid: 4242),
             "0123456789abcdef0123456789abcdef",
             permit: permit,
-            admittedChallenge: "admitted-challenge");
+            admittedChallenge: "admitted-challenge",
+            runtimeConfig: CreateRuntimeConfig());
 
         var error = await authorizer.AuthorizeAsync(request);
 
         Assert.IsNull(error);
         Assert.AreEqual("admitted-challenge", verifier.Challenge);
         Assert.AreSame(permit, verifier.Permit);
+        Assert.AreSame(request.RuntimeConfig, verifier.RuntimeConfig);
     }
 
     [TestMethod]
@@ -90,6 +92,25 @@ public sealed class PermitVerificationContractTests
         var replay = await authorizer.AuthorizeAsync(request);
 
         Assert.AreEqual(ProxyErrorCode.AuthorizationRequired, replay!.Code);
+        Assert.AreEqual(0, verifier.CallCount);
+    }
+
+    [TestMethod]
+    public async Task ChallengePermitAuthorizerFailsClosedWithoutRuntimeConfigAndDoesNotCallVerifier()
+    {
+        var verifier = new RecordingPermitVerifier();
+        var authorizer = new ChallengePermitStartAuthorizer(verifier);
+        Assert.IsTrue(SensitivePermit.TryCreate("header.payload.signature", 4096, out var permit));
+        var request = new ProxyStartRequest(
+            new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "profile-0", "server-0", targetPid: 4242),
+            "0123456789abcdef0123456789abcdef",
+            permit: permit,
+            admittedChallenge: "admitted-challenge",
+            runtimeConfig: null);
+
+        var error = await authorizer.AuthorizeAsync(request);
+
+        Assert.AreEqual(ProxyErrorCode.AuthorizationRequired, error!.Code);
         Assert.AreEqual(0, verifier.CallCount);
     }
 
@@ -179,15 +200,23 @@ public sealed class PermitVerificationContractTests
 
         public string? Challenge { get; private set; }
 
+        public RuntimeProxyConfig? RuntimeConfig { get; private set; }
+
         public Task<ProxyError?> VerifyAsync(
             SensitivePermit permit,
             string challenge,
+            RuntimeProxyConfig runtimeConfig,
             CancellationToken cancellationToken)
         {
             CallCount++;
             Permit = permit;
             Challenge = challenge;
+            RuntimeConfig = runtimeConfig;
             return Task.FromResult<ProxyError?>(null);
         }
     }
+
+    private static RuntimeProxyConfig CreateRuntimeConfig() => new(
+        1, 18, "japan-vps-1", "127.0.0.1", 8389, "shadowsocks", "aes-256-gcm",
+        new SensitiveRuntimeCredential("SENTINEL_PROXY_SECRET_42"), 1000, 1120);
 }
