@@ -272,7 +272,15 @@ public sealed class RuntimeProxyConfigInjectionTests
 
         using var cancelled = new CancellationTokenSource();
         cancelled.Cancel();
-        await Assert.ThrowsExceptionAsync<TaskCanceledException>(() => second.StartAsync(cancelled.Token));
+        try
+        {
+            await second.StartAsync(cancelled.Token);
+            Assert.Fail("A cancelled lease wait must not start a second session.");
+        }
+        catch (OperationCanceledException)
+        {
+            // SemaphoreSlim may surface either cancellation subtype depending on timing.
+        }
         await first.StopAsync(CancellationToken.None);
         Assert.AreSame(original, Global.Settings);
         Assert.AreEqual(2, stopCalls);
