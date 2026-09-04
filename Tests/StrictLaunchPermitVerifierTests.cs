@@ -393,16 +393,18 @@ public sealed class StrictLaunchPermitVerifierTests
         var runtime = new HeadlessRuntimeCoordinator(
             new ProcessModeController(new ExactResolver(), engine),
             new ChallengePermitStartAuthorizer(fixture.CreateVerifier()));
+        var runtimeConfig = fixture.RuntimeConfig;
         var result = await runtime.StartAsync(new ProxyStartRequest(
             fixture.Configuration,
             "0123456789abcdef0123456789abcdef",
             permit: fixture.CreatePermit(),
             admittedChallenge: Challenge,
-            runtimeConfig: fixture.RuntimeConfig));
+            runtimeConfig: runtimeConfig));
 
         Assert.IsTrue(result.Succeeded);
         Assert.AreEqual(ProxyStatusKind.Running, result.Status);
         Assert.AreEqual(1, engine.StartCount);
+        Assert.AreSame(runtimeConfig, engine.RuntimeConfig);
     }
 
     private sealed class PermitFixture : IDisposable
@@ -586,12 +588,20 @@ public sealed class StrictLaunchPermitVerifierTests
             CancellationToken cancellationToken) => Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
     }
 
-    private sealed class CountingEngine : IProcessModeEngine
+    private sealed class CountingEngine : IProcessModeEngine, IRuntimeConfiguredProcessModeEngine
     {
         public int StartCount { get; private set; }
+        public RuntimeProxyConfig? RuntimeConfig { get; private set; }
 
         public Task StartAsync(ProxyConfiguration configuration, CancellationToken cancellationToken)
         {
+            StartCount++;
+            return Task.CompletedTask;
+        }
+
+        public Task StartAsync(ProxyConfiguration configuration, RuntimeProxyConfig runtimeConfig, CancellationToken cancellationToken)
+        {
+            RuntimeConfig = runtimeConfig;
             StartCount++;
             return Task.CompletedTask;
         }

@@ -14,6 +14,31 @@ namespace Tests;
 public sealed class LegacyProcessModeEngineTests
 {
     [TestMethod]
+    public async Task RuntimeConfigIsForwardedExactlyWithoutLegacyResolverFallback()
+    {
+        var resolver = new RuntimeSessionResolver(new FakeSession());
+        var engine = new NetchProcessModeEngine(resolver);
+        var runtimeConfig = CreateRuntimeConfig();
+        await ((IRuntimeConfiguredProcessModeEngine)engine).StartAsync(CreateConfiguration(), runtimeConfig, CancellationToken.None);
+        Assert.AreSame(runtimeConfig, resolver.RuntimeConfig);
+        Assert.AreEqual(0, resolver.LegacyResolveCount);
+    }
+
+    [TestMethod]
+    public async Task RuntimeConfigRequiresRuntimeResolverBeforeResolvingSession()
+    {
+        var resolver = new FakeSessionResolver(new FakeSession());
+        var engine = new NetchProcessModeEngine(resolver);
+        var exception = await Assert.ThrowsExceptionAsync<ProxyRuntimeException>(() =>
+            ((IRuntimeConfiguredProcessModeEngine)engine).StartAsync(CreateConfiguration(), CreateRuntimeConfig(), CancellationToken.None));
+        Assert.AreEqual(ProxyErrorCode.InvalidConfiguration, exception.Code);
+        Assert.IsNull(resolver.Configuration);
+    }
+
+    private static RuntimeProxyConfig CreateRuntimeConfig() => new(
+        1, 1, "endpoint", "example.invalid", 443, "shadowsocks", "aes-256-gcm",
+        new SensitiveRuntimeCredential("secret"), 1000, 1120);
+    [TestMethod]
     public async Task AdapterResolvesOpaqueReferencesAndPublishesTypedLifecycle()
     {
         var session = new FakeSession();
@@ -145,6 +170,18 @@ public sealed class LegacyProcessModeEngineTests
             Configuration = configuration;
             return Task.FromResult(_session);
         }
+    }
+
+    private sealed class RuntimeSessionResolver : ILegacyProcessModeSessionResolver, IRuntimeConfiguredLegacyProcessModeSessionResolver
+    {
+        private readonly ILegacyProcessModeSession _session;
+        public RuntimeSessionResolver(ILegacyProcessModeSession session) => _session = session;
+        public int LegacyResolveCount { get; private set; }
+        public RuntimeProxyConfig? RuntimeConfig { get; private set; }
+        public Task<ILegacyProcessModeSession> ResolveAsync(ProxyConfiguration configuration, IProxyStatusSink statusSink, CancellationToken cancellationToken)
+        { LegacyResolveCount++; return Task.FromResult(_session); }
+        public Task<ILegacyProcessModeSession> ResolveAsync(ProxyConfiguration configuration, RuntimeProxyConfig runtimeConfig, IProxyStatusSink statusSink, CancellationToken cancellationToken)
+        { RuntimeConfig = runtimeConfig; return Task.FromResult(_session); }
     }
 
     private sealed class FakeSession : ILegacyProcessModeSession

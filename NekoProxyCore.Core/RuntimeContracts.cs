@@ -46,6 +46,11 @@ public interface IProxyModeController
     Task StopAsync(CancellationToken cancellationToken);
 }
 
+public interface IRuntimeConfiguredProxyModeController
+{
+    Task StartAsync(ProxyConfiguration configuration, RuntimeProxyConfig runtimeConfig, CancellationToken cancellationToken);
+}
+
 /// <summary>
 /// Optional innermost preflight capability invoked after authorization and before Starting is published.
 /// </summary>
@@ -68,6 +73,11 @@ public interface IProcessModeEngine
     Task StartAsync(ProxyConfiguration configuration, CancellationToken cancellationToken);
 
     Task StopAsync(CancellationToken cancellationToken);
+}
+
+public interface IRuntimeConfiguredProcessModeEngine
+{
+    Task StartAsync(ProxyConfiguration configuration, RuntimeProxyConfig runtimeConfig, CancellationToken cancellationToken);
 }
 
 public sealed class ProxyRuntimeException : Exception

@@ -99,6 +99,9 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
                 if (authorizationError != null)
                     return Fail(request.CorrelationId, authorizationError.Code, authorizationError.SafeMessage);
 
+                if (request.RuntimeConfig != null && _modeController is not IRuntimeConfiguredProxyModeController)
+                    return Fail(request.CorrelationId, ProxyErrorCode.InvalidConfiguration, "Proxy configuration is invalid.");
+
                 if (_modeController is IAuthorizedStartPrecondition precondition)
                     await precondition.VerifyAsync(request.Configuration, request.CancellationToken).ConfigureAwait(false);
                 Report(CoreDiagnosticStage.ProcessPrecondition, CoreDiagnosticCategory.StageCompleted);
@@ -110,7 +113,9 @@ public sealed class HeadlessRuntimeCoordinator : IProxyRuntime
                 Task? startTask = null;
                 try
                 {
-                    startTask = _modeController.StartAsync(request.Configuration, timeout.Token);
+                    startTask = request.RuntimeConfig is { } runtimeConfig
+                        ? ((IRuntimeConfiguredProxyModeController)_modeController).StartAsync(request.Configuration, runtimeConfig, timeout.Token)
+                        : _modeController.StartAsync(request.Configuration, timeout.Token);
                     _pendingStartTask = startTask;
                     await startTask
                         .WaitAsync(request.Configuration.StartTimeout, request.CancellationToken)

@@ -3,6 +3,7 @@ using Netch;
 using Netch.Controllers;
 using Netch.Models;
 using Netch.Models.Modes.ProcessMode;
+using Netch.Servers;
 
 namespace NekoProxyCore.Legacy;
 
@@ -10,7 +11,7 @@ namespace NekoProxyCore.Legacy;
 /// Resolves profile-N and server-N identifiers against legacy runtime state. The resulting
 /// server and mode objects never leave this assembly, because they can contain sensitive data.
 /// </summary>
-public sealed class NetchProcessModeSessionResolver : ILegacyProcessModeSessionResolver
+public sealed class NetchProcessModeSessionResolver : ILegacyProcessModeSessionResolver, IRuntimeConfiguredLegacyProcessModeSessionResolver
 {
     private readonly NetchProcessModeConfigurationCatalog _configurationCatalog;
     private readonly ICoreDiagnosticSink _diagnostics;
@@ -56,6 +57,29 @@ public sealed class NetchProcessModeSessionResolver : ILegacyProcessModeSessionR
         return Task.FromResult(session);
     }
 
+    public Task<ILegacyProcessModeSession> ResolveAsync(ProxyConfiguration configuration, RuntimeProxyConfig runtimeConfig, IProxyStatusSink statusSink, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(runtimeConfig);
+        ArgumentNullException.ThrowIfNull(statusSink);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (configuration.Mode != ProxyModeKind.Process)
+            throw new ProxyRuntimeException(ProxyErrorCode.UnsupportedMode, "The requested proxy mode is not supported.");
+        var resolution = _configurationCatalog.Resolve(configuration.ProfileReference, configuration.ServerReference);
+        if (!resolution.Valid)
+            ThrowInvalidConfiguration(resolution.Failure);
+        if (resolution.Server is not ShadowsocksServer server || runtimeConfig.Protocol != "shadowsocks" ||
+            !SSGlobal.EncryptMethods.Contains(runtimeConfig.Cipher, StringComparer.Ordinal) || runtimeConfig.Port is < 1 or > ushort.MaxValue)
+            throw new ProxyRuntimeException(ProxyErrorCode.InvalidConfiguration, "Proxy configuration is invalid.");
+        server.Hostname = runtimeConfig.Host;
+        server.Port = checked((ushort)runtimeConfig.Port);
+        server.EncryptMethod = runtimeConfig.Cipher;
+        server.Password = runtimeConfig.Credential.RevealForTransport();
+        ILegacyProcessModeSession session = new NetchProcessModeSession(server, resolution.Mode!, resolution.RuntimeSettings!, statusSink);
+        Report(CoreDiagnosticCategory.StageCompleted);
+        return Task.FromResult(session);
+    }
+
     private void ThrowInvalidConfiguration(ProcessModeConfigurationResolutionFailure failure)
     {
         var category = failure switch
@@ -92,11 +116,18 @@ public sealed class NetchProcessModeSessionResolver : ILegacyProcessModeSessionR
 
     private sealed class NetchProcessModeSession : ILegacyProcessModeSession
     {
+        private static readonly SemaphoreSlim GlobalSettingsLease = new(1, 1);
+        // Private test seam: production callers cannot replace lifecycle behavior.
+        private static Func<Server, Redirector, IProxyStatusSink, Task> StartControllerAsync =
+            (server, mode, sink) => MainController.StartAsync(server, mode, sink, openLogOnUnhandledException: false);
+        private static Func<Task> StopControllerAsync = MainController.StopAsync;
         private readonly Server _server;
         private readonly Redirector _mode;
         private readonly Setting _runtimeSettings;
-        private readonly Setting _liveSettings;
         private readonly IProxyStatusSink _statusSink;
+        private Setting? _liveSettings;
+        private bool _leaseHeld;
+        private readonly SemaphoreSlim _cleanupGate = new(1, 1);
 
         public NetchProcessModeSession(
             Server server,
@@ -107,31 +138,64 @@ public sealed class NetchProcessModeSessionResolver : ILegacyProcessModeSessionR
             _server = server;
             _mode = mode;
             _runtimeSettings = runtimeSettings;
-            _liveSettings = Global.Settings;
             _statusSink = statusSink;
         }
 
-        public Task StartAsync(CancellationToken cancellationToken)
+        public async Task StartAsync(CancellationToken cancellationToken)
         {
-            // Restore the complete process-lifetime execution snapshot immediately before
-            // entering legacy runtime code that still reads Global.Settings internally.
+            await GlobalSettingsLease.WaitAsync(cancellationToken).ConfigureAwait(false);
+            _leaseHeld = true;
+            _liveSettings = Global.Settings;
             Global.Settings = _runtimeSettings;
-            return MainController.StartAsync(
-                _server,
-                _mode,
-                _statusSink,
-                openLogOnUnhandledException: false).WaitAsync(cancellationToken);
-        }
-
-        public async Task StopAsync(CancellationToken cancellationToken)
-        {
             try
             {
-                await MainController.StopAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
+                // MainController.StartAsync( is the production delegate target above.
+                await StartControllerAsync(_server, _mode, _statusSink)
+                    .WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                await CleanupAsync(CancellationToken.None).ConfigureAwait(false);
+                throw;
+            }
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken) => CleanupAsync(cancellationToken);
+
+        private async Task CleanupAsync(CancellationToken cancellationToken)
+        {
+            await _cleanupGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                if (!_leaseHeld)
+                    return;
+                try
+                {
+                    await StopControllerAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    try
+                    {
+                        if (_server is ShadowsocksServer shadowsocks)
+                        {
+                            try { shadowsocks.Password = string.Empty; }
+                            catch { }
+                        }
+                    }
+                    finally
+                    {
+                        if (_liveSettings != null)
+                            Global.Settings = _liveSettings;
+                        _liveSettings = null;
+                        _leaseHeld = false;
+                        GlobalSettingsLease.Release();
+                    }
+                }
             }
             finally
             {
-                Global.Settings = _liveSettings;
+                _cleanupGate.Release();
             }
         }
     }

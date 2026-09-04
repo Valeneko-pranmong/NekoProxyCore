@@ -6,7 +6,7 @@ namespace NekoProxyCore.Legacy;
 /// IProcessModeEngine adapter for the legacy Netch ProcessMode lifecycle.
 /// It accepts only Core's sanitized identifiers; configuration resolution remains runtime-only.
 /// </summary>
-public sealed class NetchProcessModeEngine : IProcessModeEngine
+public sealed class NetchProcessModeEngine : IProcessModeEngine, IRuntimeConfiguredProcessModeEngine
 {
     private readonly ILegacyProcessModeSessionResolver _sessionResolver;
     private readonly IProxyStatusSink _statusSink;
@@ -24,7 +24,12 @@ public sealed class NetchProcessModeEngine : IProcessModeEngine
         _diagnostics = diagnostics ?? NullCoreDiagnosticSink.Instance;
     }
 
-    public async Task StartAsync(ProxyConfiguration configuration, CancellationToken cancellationToken)
+    public Task StartAsync(ProxyConfiguration configuration, CancellationToken cancellationToken) => StartCoreAsync(configuration, null, cancellationToken);
+
+    public Task StartAsync(ProxyConfiguration configuration, RuntimeProxyConfig runtimeConfig, CancellationToken cancellationToken) =>
+        StartCoreAsync(configuration, runtimeConfig ?? throw new ArgumentNullException(nameof(runtimeConfig)), cancellationToken);
+
+    private async Task StartCoreAsync(ProxyConfiguration configuration, RuntimeProxyConfig? runtimeConfig, CancellationToken cancellationToken)
     {
         if (configuration == null)
             throw new ArgumentNullException(nameof(configuration));
@@ -38,9 +43,13 @@ public sealed class NetchProcessModeEngine : IProcessModeEngine
             Publish(ProxyStatusKind.Starting);
             try
             {
-                var session = await _sessionResolver
-                    .ResolveAsync(configuration, _statusSink, cancellationToken)
-                    .ConfigureAwait(false);
+                ILegacyProcessModeSession session;
+                if (runtimeConfig == null)
+                    session = await _sessionResolver.ResolveAsync(configuration, _statusSink, cancellationToken).ConfigureAwait(false);
+                else if (_sessionResolver is IRuntimeConfiguredLegacyProcessModeSessionResolver runtimeResolver)
+                    session = await runtimeResolver.ResolveAsync(configuration, runtimeConfig, _statusSink, cancellationToken).ConfigureAwait(false);
+                else
+                    throw new ProxyRuntimeException(ProxyErrorCode.InvalidConfiguration, "Proxy configuration is invalid.");
                 _activeSession = session ?? throw new ProxyRuntimeException(
                     ProxyErrorCode.InvalidConfiguration,
                     "The ProcessMode profile could not be resolved.");

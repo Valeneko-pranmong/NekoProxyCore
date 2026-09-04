@@ -3,7 +3,7 @@ namespace NekoProxyCore.Core;
 /// <summary>
 /// ProcessMode seam. Native redirector/driver behavior is supplied by the engine adapter.
 /// </summary>
-public sealed class ProcessModeController : IProxyModeController, IProcessExitWatcher, IAuthorizedStartPrecondition
+public sealed class ProcessModeController : IProxyModeController, IRuntimeConfiguredProxyModeController, IProcessExitWatcher, IAuthorizedStartPrecondition
 {
     private readonly IProcessResolver _processResolver;
     private readonly IProcessModeEngine _engine;
@@ -38,7 +38,12 @@ public sealed class ProcessModeController : IProxyModeController, IProcessExitWa
         }
     }
 
-    public async Task StartAsync(ProxyConfiguration configuration, CancellationToken cancellationToken)
+    public Task StartAsync(ProxyConfiguration configuration, CancellationToken cancellationToken) => StartCoreAsync(configuration, null, cancellationToken);
+
+    public Task StartAsync(ProxyConfiguration configuration, RuntimeProxyConfig runtimeConfig, CancellationToken cancellationToken) =>
+        StartCoreAsync(configuration, runtimeConfig ?? throw new ArgumentNullException(nameof(runtimeConfig)), cancellationToken);
+
+    private async Task StartCoreAsync(ProxyConfiguration configuration, RuntimeProxyConfig? runtimeConfig, CancellationToken cancellationToken)
     {
         try
         {
@@ -67,7 +72,12 @@ public sealed class ProcessModeController : IProxyModeController, IProcessExitWa
             throw;
         }
 
-        await _engine.StartAsync(configuration, cancellationToken).ConfigureAwait(false);
+        if (runtimeConfig == null)
+            await _engine.StartAsync(configuration, cancellationToken).ConfigureAwait(false);
+        else if (_engine is IRuntimeConfiguredProcessModeEngine runtimeEngine)
+            await runtimeEngine.StartAsync(configuration, runtimeConfig, cancellationToken).ConfigureAwait(false);
+        else
+            throw new ProxyRuntimeException(ProxyErrorCode.InvalidConfiguration, "Proxy configuration is invalid.");
 
         try
         {

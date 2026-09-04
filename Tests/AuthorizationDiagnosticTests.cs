@@ -158,15 +158,17 @@ public sealed class AuthorizationDiagnosticTests
             null,
             diagnostics);
 
+        var runtimeConfig = CreateRuntimeConfig();
         var result = await runtime.StartAsync(new ProxyStartRequest(
             fixture.Configuration,
             CorrelationId,
             permit: fixture.CreatePermit(),
             admittedChallenge: Challenge,
-            runtimeConfig: CreateRuntimeConfig()));
+            runtimeConfig: runtimeConfig));
 
         Assert.IsTrue(result.Succeeded);
         Assert.AreEqual(1, engine.StartCount);
+        Assert.AreSame(runtimeConfig, engine.RuntimeConfig);
         Assert.AreEqual(3072, fixture.KeySize);
         StringAssert.Contains(writer.ToString(), "stage=RUNTIME_START category=STAGE_COMPLETED");
         AssertNoSensitiveMarkers(writer.ToString(), fixture.LastCompactPermit);
@@ -485,12 +487,20 @@ public sealed class AuthorizationDiagnosticTests
         public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
-    private sealed class CountingEngine : IProcessModeEngine
+    private sealed class CountingEngine : IProcessModeEngine, IRuntimeConfiguredProcessModeEngine
     {
         public int StartCount { get; private set; }
+        public RuntimeProxyConfig? RuntimeConfig { get; private set; }
 
         public Task StartAsync(ProxyConfiguration configuration, CancellationToken cancellationToken)
         {
+            StartCount++;
+            return Task.CompletedTask;
+        }
+
+        public Task StartAsync(ProxyConfiguration configuration, RuntimeProxyConfig runtimeConfig, CancellationToken cancellationToken)
+        {
+            RuntimeConfig = runtimeConfig;
             StartCount++;
             return Task.CompletedTask;
         }

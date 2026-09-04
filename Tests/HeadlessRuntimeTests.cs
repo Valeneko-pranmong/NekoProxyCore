@@ -13,6 +13,36 @@ namespace Tests;
 public sealed class HeadlessRuntimeTests
 {
     [TestMethod]
+    public async Task RuntimeConfigIsForwardedByExactIdentity()
+    {
+        var controller = new RuntimeConfiguredController();
+        var runtime = CreateAuthorizedRuntime(controller);
+        var config = CreateRuntimeConfig();
+        var result = await runtime.StartAsync(new ProxyStartRequest(
+            new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "fixture-pso2", "fixture-server"), runtimeConfig: config));
+        Assert.IsTrue(result.Succeeded);
+        Assert.AreSame(config, controller.RuntimeConfig);
+        Assert.AreEqual(0, controller.LegacyStartCount);
+    }
+
+    [TestMethod]
+    public async Task RuntimeConfigRequiresCapableControllerBeforeStartingIsPublished()
+    {
+        var controller = new PartialStartFailingController();
+        var sink = new RecordingSink();
+        var runtime = CreateAuthorizedRuntime(controller, sink);
+        var result = await runtime.StartAsync(new ProxyStartRequest(
+            new ProxyConfiguration(ProxyModeKind.Process, "pso2.exe", "fixture-pso2", "fixture-server"), runtimeConfig: CreateRuntimeConfig()));
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(ProxyErrorCode.InvalidConfiguration, result.Error!.Code);
+        Assert.AreEqual(0, controller.StartCount);
+        Assert.IsFalse(sink.Events.Any(e => e.Status == ProxyStatusKind.Starting));
+    }
+
+    private static RuntimeProxyConfig CreateRuntimeConfig() => new(
+        1, 1, "endpoint", "example.invalid", 443, "shadowsocks", "aes-256-gcm",
+        new SensitiveRuntimeCredential("secret"), 1000, 1120);
+    [TestMethod]
     public async Task StartAndStopPublishTypedLifecycle()
     {
         var process = new FakeProcessResolver(true);
@@ -639,6 +669,17 @@ public sealed class HeadlessRuntimeTests
                 StopCompleted.TrySetResult(null);
             }
         }
+    }
+
+    private sealed class RuntimeConfiguredController : IProxyModeController, IRuntimeConfiguredProxyModeController
+    {
+        public int LegacyStartCount { get; private set; }
+        public RuntimeProxyConfig? RuntimeConfig { get; private set; }
+        public Task StartAsync(ProxyConfiguration configuration, CancellationToken cancellationToken)
+        { LegacyStartCount++; return Task.CompletedTask; }
+        public Task StartAsync(ProxyConfiguration configuration, RuntimeProxyConfig runtimeConfig, CancellationToken cancellationToken)
+        { RuntimeConfig = runtimeConfig; return Task.CompletedTask; }
+        public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     private sealed class SequenceProcessResolver : IProcessResolver
