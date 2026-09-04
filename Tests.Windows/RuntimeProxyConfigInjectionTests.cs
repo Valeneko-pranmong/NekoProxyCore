@@ -53,18 +53,26 @@ public sealed class RuntimeProxyConfigInjectionTests
         var first = await resolver.ResolveAsync(Configuration(), runtime, Sink.Instance, CancellationToken.None);
         var injected = Server(first);
         Assert.AreNotSame(template, injected);
+        Assert.AreEqual("template.invalid", injected.Hostname);
+        Assert.AreEqual((ushort)9999, injected.Port);
+        Assert.AreEqual("aes-128-gcm", injected.EncryptMethod);
+        Assert.AreEqual("template-password", injected.Password);
+        SetControllerSeams((_, _, _) => Task.CompletedTask, () => Task.CompletedTask);
+        await first.StartAsync(CancellationToken.None);
         Assert.AreEqual("runtime.example.invalid", injected.Hostname);
         Assert.AreEqual((ushort)port, injected.Port);
         Assert.AreEqual("aes-256-gcm", injected.EncryptMethod);
         Assert.AreEqual(Sentinel, injected.Password);
         Assert.AreEqual("plugin", injected.Plugin);
         Assert.AreEqual("option", injected.PluginOption);
-        Assert.AreSame(settings, Global.Settings);
+        Assert.AreNotSame(settings, Global.Settings);
         Assert.AreSame(mode, Global.Modes[0]);
         Assert.AreEqual("template.invalid", template.Hostname);
         Assert.AreEqual((ushort)9999, template.Port);
         Assert.AreEqual("aes-128-gcm", template.EncryptMethod);
         Assert.AreEqual("template-password", template.Password);
+        await first.StopAsync(CancellationToken.None);
+        Assert.AreSame(settings, Global.Settings);
 
         var second = await resolver.ResolveAsync(Configuration(), Sink.Instance, CancellationToken.None);
         var clean = Server(second);
@@ -169,6 +177,111 @@ public sealed class RuntimeProxyConfigInjectionTests
         await second.StartAsync(CancellationToken.None);
         await second.StopAsync(CancellationToken.None);
         Assert.AreEqual(2, stopCalls);
+    }
+
+    [TestMethod]
+    public async Task CancelledStopWaitRetainsSettingsAndLeaseUntilUnderlyingStopCompletes()
+    {
+        Configure(new ShadowsocksServer { Remark = "server-template" });
+        var original = Global.Settings;
+        var resolver = new NetchProcessModeSessionResolver();
+        var first = await resolver.ResolveAsync(Configuration(), Runtime(), Sink.Instance, CancellationToken.None);
+        var second = await resolver.ResolveAsync(Configuration(), Runtime(), Sink.Instance, CancellationToken.None);
+        var stopCompletion = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopCalls = 0;
+        SetControllerSeams((_, _, _) => Task.CompletedTask, () =>
+        {
+            Interlocked.Increment(ref stopCalls);
+            return stopCompletion.Task;
+        });
+
+        await first.StartAsync(CancellationToken.None);
+        var runtimeSettings = Global.Settings;
+        using var cancelled = new CancellationTokenSource();
+        var stopping = first.StopAsync(cancelled.Token);
+        cancelled.Cancel();
+        await Assert.ThrowsExceptionAsync<TaskCanceledException>(() => stopping);
+        Assert.AreEqual(1, stopCalls);
+
+        var secondStart = second.StartAsync(CancellationToken.None);
+        Assert.IsFalse(secondStart.IsCompleted);
+        Assert.AreSame(runtimeSettings, Global.Settings);
+
+        stopCompletion.SetResult(null);
+        await secondStart;
+        Assert.AreEqual(1, stopCalls);
+        await second.StopAsync(CancellationToken.None);
+        Assert.AreSame(original, Global.Settings);
+        Assert.AreEqual(2, stopCalls);
+    }
+
+    [TestMethod]
+    public async Task EngineRetainsCancelledStopOwnershipAndLaterFinalizesWithoutStoppingNextSession()
+    {
+        Configure(new ShadowsocksServer { Remark = "server-template" });
+        var resolver = new NetchProcessModeSessionResolver();
+        var firstEngine = new NetchProcessModeEngine(resolver);
+        var secondEngine = new NetchProcessModeEngine(resolver);
+        var stopCompletion = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopCalls = 0;
+        SetControllerSeams((_, _, _) => Task.CompletedTask, () =>
+        {
+            var attempt = Interlocked.Increment(ref stopCalls);
+            return attempt == 1 ? stopCompletion.Task : Task.CompletedTask;
+        });
+
+        await ((IRuntimeConfiguredProcessModeEngine)firstEngine).StartAsync(
+            Configuration(), Runtime(), CancellationToken.None);
+        using var cancelled = new CancellationTokenSource();
+        var stopping = firstEngine.StopAsync(cancelled.Token);
+        cancelled.Cancel();
+        await Assert.ThrowsExceptionAsync<TaskCanceledException>(() => stopping);
+
+        stopCompletion.SetResult(null);
+        await firstEngine.StopAsync(CancellationToken.None);
+        Assert.AreEqual(1, stopCalls);
+
+        await ((IRuntimeConfiguredProcessModeEngine)secondEngine).StartAsync(
+            Configuration(), Runtime(), CancellationToken.None);
+        await firstEngine.StopAsync(CancellationToken.None);
+        Assert.AreEqual(1, stopCalls);
+        await secondEngine.StopAsync(CancellationToken.None);
+        Assert.AreEqual(2, stopCalls);
+    }
+
+    [TestMethod]
+    public async Task FaultedUnderlyingStopRetainsLeaseClearsPasswordAndCanRetryExactlyOnce()
+    {
+        Configure(new ShadowsocksServer { Remark = "server-template" });
+        var original = Global.Settings;
+        var resolver = new NetchProcessModeSessionResolver();
+        var first = await resolver.ResolveAsync(Configuration(), Runtime(), Sink.Instance, CancellationToken.None);
+        var second = await resolver.ResolveAsync(Configuration(), Runtime(), Sink.Instance, CancellationToken.None);
+        var stopCalls = 0;
+        SetControllerSeams((_, _, _) => Task.CompletedTask, () =>
+        {
+            var attempt = Interlocked.Increment(ref stopCalls);
+            return attempt == 1
+                ? Task.FromException(new InvalidOperationException("stop failure"))
+                : Task.CompletedTask;
+        });
+
+        await first.StartAsync(CancellationToken.None);
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => first.StopAsync(CancellationToken.None));
+        Assert.AreEqual(string.Empty, Server(first).Password);
+
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        await Assert.ThrowsExceptionAsync<TaskCanceledException>(() => second.StartAsync(cancelled.Token));
+        await first.StopAsync(CancellationToken.None);
+        Assert.AreSame(original, Global.Settings);
+        Assert.AreEqual(2, stopCalls);
+        await first.StopAsync(CancellationToken.None);
+        Assert.AreEqual(2, stopCalls);
+
+        await second.StartAsync(CancellationToken.None);
+        await second.StopAsync(CancellationToken.None);
+        Assert.AreEqual(3, stopCalls);
     }
 
     private static Server Configure(Server server)

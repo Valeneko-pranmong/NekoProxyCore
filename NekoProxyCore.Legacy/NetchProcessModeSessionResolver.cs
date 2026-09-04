@@ -68,14 +68,12 @@ public sealed class NetchProcessModeSessionResolver : ILegacyProcessModeSessionR
         var resolution = _configurationCatalog.Resolve(configuration.ProfileReference, configuration.ServerReference);
         if (!resolution.Valid)
             ThrowInvalidConfiguration(resolution.Failure);
-        if (resolution.Server is not ShadowsocksServer server || runtimeConfig.Protocol != "shadowsocks" ||
+        if (resolution.Server is not ShadowsocksServer server || server.GetType() != typeof(ShadowsocksServer) ||
+            runtimeConfig.Protocol != "shadowsocks" ||
             !SSGlobal.EncryptMethods.Contains(runtimeConfig.Cipher, StringComparer.Ordinal) || runtimeConfig.Port is < 1 or > ushort.MaxValue)
             throw new ProxyRuntimeException(ProxyErrorCode.InvalidConfiguration, "Proxy configuration is invalid.");
-        server.Hostname = runtimeConfig.Host;
-        server.Port = checked((ushort)runtimeConfig.Port);
-        server.EncryptMethod = runtimeConfig.Cipher;
-        server.Password = runtimeConfig.Credential.RevealForTransport();
-        ILegacyProcessModeSession session = new NetchProcessModeSession(server, resolution.Mode!, resolution.RuntimeSettings!, statusSink);
+        ILegacyProcessModeSession session = new NetchProcessModeSession(
+            server, resolution.Mode!, resolution.RuntimeSettings!, statusSink, runtimeConfig);
         Report(CoreDiagnosticCategory.StageCompleted);
         return Task.FromResult(session);
     }
@@ -125,78 +123,216 @@ public sealed class NetchProcessModeSessionResolver : ILegacyProcessModeSessionR
         private readonly Redirector _mode;
         private readonly Setting _runtimeSettings;
         private readonly IProxyStatusSink _statusSink;
+        private readonly object _stateGate = new();
+        private RuntimeProxyConfig? _runtimeConfig;
         private Setting? _liveSettings;
+        private CancellationTokenSource? _leaseWaitCancellation;
+        private Task? _startTask;
+        private Task? _stopTask;
         private bool _leaseHeld;
-        private readonly SemaphoreSlim _cleanupGate = new(1, 1);
+        private bool _nativeStartInvoked;
+        private bool _teardownSucceeded;
 
         public NetchProcessModeSession(
             Server server,
             Redirector mode,
             Setting runtimeSettings,
-            IProxyStatusSink statusSink)
+            IProxyStatusSink statusSink,
+            RuntimeProxyConfig? runtimeConfig = null)
         {
             _server = server;
             _mode = mode;
             _runtimeSettings = runtimeSettings;
             _statusSink = statusSink;
+            _runtimeConfig = runtimeConfig;
         }
 
-        public async Task StartAsync(CancellationToken cancellationToken)
+        public Task StartAsync(CancellationToken cancellationToken)
         {
-            await GlobalSettingsLease.WaitAsync(cancellationToken).ConfigureAwait(false);
-            _leaseHeld = true;
-            _liveSettings = Global.Settings;
-            Global.Settings = _runtimeSettings;
+            Task startTask;
+            CancellationTokenSource leaseWaitCancellation;
+            lock (_stateGate)
+            {
+                if (!_leaseHeld && (_startTask?.IsCanceled == true || _stopTask?.IsCompleted == true))
+                {
+                    _leaseWaitCancellation?.Dispose();
+                    _leaseWaitCancellation = null;
+                    _startTask = null;
+                    _stopTask = null;
+                }
+                if (_startTask == null)
+                {
+                    _leaseWaitCancellation = new CancellationTokenSource();
+                    _startTask = RunStartAsync(_leaseWaitCancellation.Token);
+                    ObserveFault(_startTask);
+                }
+                startTask = _startTask;
+                leaseWaitCancellation = _leaseWaitCancellation!;
+            }
+            return WaitForStartAsync(startTask, leaseWaitCancellation, cancellationToken);
+        }
+
+        private async Task WaitForStartAsync(
+            Task startTask,
+            CancellationTokenSource leaseWaitCancellation,
+            CancellationToken cancellationToken)
+        {
             try
             {
-                // MainController.StartAsync( is the production delegate target above.
-                await StartControllerAsync(_server, _mode, _statusSink)
-                    .WaitAsync(cancellationToken).ConfigureAwait(false);
+                await startTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                lock (_stateGate)
+                {
+                    if (!_leaseHeld)
+                    {
+                        ClearSensitiveReferencesLocked();
+                        leaseWaitCancellation.Cancel();
+                    }
+                }
+                throw;
             }
             catch
             {
-                await CleanupAsync(CancellationToken.None).ConfigureAwait(false);
+                await GetOrCreateStopTaskAsync().ConfigureAwait(false);
                 throw;
             }
         }
 
-        public Task StopAsync(CancellationToken cancellationToken) => CleanupAsync(cancellationToken);
-
-        private async Task CleanupAsync(CancellationToken cancellationToken)
+        private async Task RunStartAsync(CancellationToken leaseWaitCancellation)
         {
-            await _cleanupGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
             try
             {
-                if (!_leaseHeld)
-                    return;
-                try
-                {
-                    await StopControllerAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
-                }
-                finally
-                {
-                    try
-                    {
-                        if (_server is ShadowsocksServer shadowsocks)
-                        {
-                            try { shadowsocks.Password = string.Empty; }
-                            catch { }
-                        }
-                    }
-                    finally
-                    {
-                        if (_liveSettings != null)
-                            Global.Settings = _liveSettings;
-                        _liveSettings = null;
-                        _leaseHeld = false;
-                        GlobalSettingsLease.Release();
-                    }
-                }
+                await GlobalSettingsLease.WaitAsync(leaseWaitCancellation).ConfigureAwait(false);
             }
-            finally
+            catch
             {
-                _cleanupGate.Release();
+                lock (_stateGate)
+                    ClearSensitiveReferencesLocked();
+                throw;
+            }
+
+            lock (_stateGate)
+            {
+                _leaseHeld = true;
+                _liveSettings = Global.Settings;
+                InjectRuntimeConfigurationLocked();
+                Global.Settings = _runtimeSettings;
+                _nativeStartInvoked = true;
+            }
+
+            // MainController.StartAsync( is the production delegate target above.
+            await StartControllerAsync(_server, _mode, _statusSink).ConfigureAwait(false);
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken)
+        {
+            Task stopTask;
+            lock (_stateGate)
+            {
+                if (_teardownSucceeded || _startTask == null)
+                {
+                    ClearSensitiveReferencesLocked();
+                    return Task.CompletedTask;
+                }
+                if (!_leaseHeld && !_startTask.IsCompleted)
+                    _leaseWaitCancellation?.Cancel();
+                stopTask = GetOrCreateStopTaskLockedAsync();
+            }
+            return stopTask.WaitAsync(cancellationToken);
+        }
+
+        private Task GetOrCreateStopTaskAsync()
+        {
+            lock (_stateGate)
+                return GetOrCreateStopTaskLockedAsync();
+        }
+
+        private Task GetOrCreateStopTaskLockedAsync()
+        {
+            if (_stopTask == null || _stopTask.IsFaulted || _stopTask.IsCanceled)
+            {
+                _stopTask = RunStopAttemptAsync(_startTask!);
+                ObserveFault(_stopTask);
+            }
+            return _stopTask;
+        }
+
+        private async Task RunStopAttemptAsync(Task startTask)
+        {
+#pragma warning disable VSTHRD003 // This is the session-owned native start operation.
+            try { await startTask.ConfigureAwait(false); }
+            catch { /* An invoked native start still requires native teardown. */ }
+#pragma warning restore VSTHRD003
+
+            bool shouldStop;
+            lock (_stateGate)
+                shouldStop = _leaseHeld && _nativeStartInvoked && !_teardownSucceeded;
+            if (!shouldStop)
+            {
+                lock (_stateGate)
+                    ClearSensitiveReferencesLocked();
+                return;
+            }
+
+            try
+            {
+                await StopControllerAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                lock (_stateGate)
+                    ClearPasswordReferenceLocked();
+                throw;
+            }
+
+            lock (_stateGate)
+            {
+                if (_teardownSucceeded)
+                    return;
+                ClearPasswordReferenceLocked();
+                Global.Settings = _liveSettings!;
+                _liveSettings = null;
+                _leaseHeld = false;
+                _nativeStartInvoked = false;
+                _teardownSucceeded = true;
+                GlobalSettingsLease.Release();
             }
         }
+
+        private void InjectRuntimeConfigurationLocked()
+        {
+            if (_runtimeConfig == null)
+                return;
+            var server = (ShadowsocksServer)_server;
+            server.Hostname = _runtimeConfig.Host;
+            server.Port = checked((ushort)_runtimeConfig.Port);
+            server.EncryptMethod = _runtimeConfig.Cipher;
+            server.Password = _runtimeConfig.Credential.RevealForTransport();
+            _runtimeConfig = null;
+        }
+
+        private void ClearSensitiveReferencesLocked()
+        {
+            _runtimeConfig = null;
+            ClearPasswordReferenceLocked();
+        }
+
+        private void ClearPasswordReferenceLocked()
+        {
+            if (_server is ShadowsocksServer shadowsocks)
+            {
+                try { shadowsocks.Password = string.Empty; }
+                catch { }
+            }
+        }
+
+        private static void ObserveFault(Task task) =>
+            _ = task.ContinueWith(
+                completed => _ = completed.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
     }
 }
