@@ -13,7 +13,7 @@ public sealed class S0Rc1ReviewRegressionTests
     [TestMethod]
     public void AdmittedStartAtomicallyConsumesChallengeBeforeDispatch()
     {
-        const string json = "{\"type\":\"start\",\"correlationId\":\"0123456789abcdef0123456789abcdef\",\"protocolVersion\":2,\"mode\":\"ProcessMode\",\"processName\":\"pso2.exe\",\"targetPid\":4242,\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\",\"permit\":\"header.payload.signature\"}";
+        const string json = "{\"type\":\"start\",\"correlationId\":\"0123456789abcdef0123456789abcdef\",\"protocolVersion\":3,\"mode\":\"ProcessMode\",\"processName\":\"pso2.exe\",\"targetPid\":4242,\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\",\"permit\":\"header.payload.signature\",\"runtimeConfig\":{\"schemaVersion\":1,\"configVersion\":18,\"endpointId\":\"japan-vps-1\",\"host\":\"127.0.0.1\",\"port\":8389,\"protocol\":\"shadowsocks\",\"cipher\":\"aes-256-gcm\",\"credential\":\"SENTINEL_PROXY_SECRET_42\",\"issuedAt\":1000,\"expiresAt\":1120}}";
         var challenges = new CoreChallengeService();
         var issued = challenges.Issue();
 
