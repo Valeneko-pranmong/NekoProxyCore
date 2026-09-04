@@ -26,24 +26,27 @@ public sealed class HeadlessHostProtocolTests
     }
 
     [TestMethod]
-    public void LauncherCanonicalStartRequestProducesTargetBoundConfiguration()
+    public void ProtocolV2StartFailsClosedWithoutConsumingChallenge()
     {
         const string json = "{\"type\":\"start\",\"correlationId\":\"0123456789abcdef0123456789abcdef\",\"protocolVersion\":2,\"mode\":\"ProcessMode\",\"processName\":\"pso2.exe\",\"targetPid\":4242,\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\",\"permit\":\"header.payload.signature\"}";
         var challenges = new CoreChallengeService();
         challenges.Issue();
 
-        var parsed = ControlProtocol.TryParseRequest(json, challenges, out var request, out var error);
-
-        Assert.IsTrue(parsed);
+        Assert.IsFalse(ControlProtocol.TryParseRequest(json, challenges, out _, out _));
+        Assert.IsTrue(ControlProtocol.TryParseRequest(ValidV3Start(), challenges, out var request, out var error));
         Assert.IsNull(error);
         Assert.IsTrue(request!.TryCreateStartRequest(out var startRequest, out error));
         Assert.AreEqual((uint)4242, startRequest!.Configuration.TargetPid);
+        Assert.IsNotNull(startRequest.RuntimeConfig);
     }
 
     [TestMethod]
-    public void ExistingStartCorrelationAdmissionRemainsCompatible()
+    public void StartCorrelationWithTrailingNewlineRemainsCompatible()
     {
-        const string json = "{\"type\":\"start\",\"correlationId\":\"0123456789abcdef0123456789abcdef\\n\",\"protocolVersion\":2,\"mode\":\"ProcessMode\",\"processName\":\"pso2.exe\",\"targetPid\":4242,\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\",\"permit\":\"header.payload.signature\"}";
+        var json = ValidV3Start().Replace(
+            "0123456789abcdef0123456789abcdef",
+            "0123456789abcdef0123456789abcdef\\n",
+            StringComparison.Ordinal);
         var challenges = new CoreChallengeService();
         challenges.Issue();
 
@@ -55,7 +58,7 @@ public sealed class HeadlessHostProtocolTests
     [TestMethod]
     public void ValidStartRequestProducesTargetBoundConfiguration()
     {
-        const string json = "{\"type\":\"start\",\"correlationId\":\"0123456789abcdef0123456789abcdef\",\"protocolVersion\":2,\"mode\":\"ProcessMode\",\"processName\":\"pso2.exe\",\"targetPid\":4242,\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\",\"permit\":\"header.payload.signature\"}";
+        var json = ValidV3Start();
 
         var challenges = new CoreChallengeService();
         challenges.Issue();
@@ -150,7 +153,7 @@ public sealed class HeadlessHostProtocolTests
     {
         const string catalog = "{\"type\":\"runtimeConfigCatalog\",\"correlationId\":\"11111111111111111111111111111111\"}";
         const string validation = "{\"type\":\"runtimeConfigValidate\",\"correlationId\":\"22222222222222222222222222222222\",\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\"}";
-        const string start = "{\"type\":\"start\",\"correlationId\":\"33333333333333333333333333333333\",\"protocolVersion\":2,\"mode\":\"ProcessMode\",\"processName\":\"pso2.exe\",\"targetPid\":4242,\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\",\"permit\":\"header.payload.signature\"}";
+        var start = ValidV3Start("33333333333333333333333333333333");
         var challenges = new CoreChallengeService();
 
         Assert.IsTrue(ControlProtocol.TryParseRequest(catalog, challenges, out _, out _));
@@ -437,7 +440,7 @@ public sealed class HeadlessHostProtocolTests
     public void ShutdownDoesNotConsumeOrBypassStartChallengeAdmission()
     {
         const string shutdown = "{\"type\":\"shutdown\",\"correlationId\":\"0123456789abcdef0123456789abcdef\"}";
-        const string start = "{\"type\":\"start\",\"correlationId\":\"fedcba9876543210fedcba9876543210\",\"protocolVersion\":2,\"mode\":\"ProcessMode\",\"processName\":\"pso2.exe\",\"targetPid\":4242,\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\",\"permit\":\"header.payload.signature\"}";
+        var start = ValidV3Start("fedcba9876543210fedcba9876543210");
         var challenges = new CoreChallengeService();
 
         Assert.IsTrue(ControlProtocol.TryParseRequest(shutdown, challenges, out _, out _));
@@ -507,5 +510,110 @@ public sealed class HeadlessHostProtocolTests
             "0123456789abcdef0123456789abcdef",
             new ProxyError(ProxyErrorCode.InvalidConfiguration, "ignored")));
         Assert.AreEqual(ProxyErrorCode.ConfigurationMismatch, invalidConfiguration.ErrorCode);
+    }
+    [TestMethod]
+    public void LauncherStyleProtocolV3StartCarriesExactRuntimeConfig()
+    {
+        var challenges = new CoreChallengeService();
+        challenges.Issue();
+        Assert.IsTrue(ControlProtocol.TryParseRequest(ValidV3Start(), challenges, out var request, out var error));
+        Assert.IsNull(error);
+        Assert.AreEqual(3, ControlProtocol.Version);
+        Assert.AreEqual(8192, ControlProtocol.MaxFrameBytes);
+        Assert.IsTrue(request!.TryCreateStartRequest(out var start, out error));
+        var config = start!.RuntimeConfig!;
+        Assert.AreEqual(1, config.SchemaVersion);
+        Assert.AreEqual(18L, config.ConfigVersion);
+        Assert.AreEqual("japan-vps-1", config.EndpointId);
+        Assert.AreEqual("127.0.0.1", config.Host);
+        Assert.AreEqual(8389, config.Port);
+        Assert.AreEqual("shadowsocks", config.Protocol);
+        Assert.AreEqual("aes-256-gcm", config.Cipher);
+        Assert.AreEqual("SENTINEL_PROXY_SECRET_42", config.Credential.RevealForTransport());
+        Assert.AreEqual(1000L, config.IssuedAt);
+        Assert.AreEqual(1120L, config.ExpiresAt);
+    }
+
+    [DataTestMethod]
+    [DataRow("REMOVE_RUNTIME")]
+    [DataRow("NON_OBJECT")]
+    [DataRow("DUPLICATE")]
+    [DataRow("EXTRA")]
+    [DataRow("MISSING")]
+    [DataRow("WRONG_SCHEMA")]
+    [DataRow("OVERSIZED_CREDENTIAL")]
+    [DataRow("CONFIG_BOOL")]
+    [DataRow("CONFIG_STRING")]
+    [DataRow("CONFIG_UNSAFE")]
+    [DataRow("ISSUED_STRING")]
+    [DataRow("EXPIRES_BOOL")]
+    [DataRow("BAD_LIFETIME")]
+    [DataRow("TOP_EXTRA")]
+    [DataRow("TOP_MISSING")]
+    public void ProtocolV3RejectsMalformedRuntimeConfigOrTopLevelShape(string mutation)
+    {
+        var json = MutateV3Start(mutation);
+        var challenges = new CoreChallengeService();
+        challenges.Issue();
+        Assert.IsFalse(ControlProtocol.TryParseRequest(json, challenges, out var request, out var error));
+        Assert.IsNull(request);
+        Assert.AreEqual(ProxyErrorCode.ProtocolInvalid, error!.ErrorCode);
+    }
+
+    [TestMethod]
+    public void MalformedConfigDoesNotConsumeOutstandingChallenge()
+    {
+        var challenges = new CoreChallengeService();
+        challenges.Issue();
+        Assert.IsFalse(ControlProtocol.TryParseRequest(MutateV3Start("WRONG_SCHEMA"), challenges, out _, out _));
+        Assert.IsTrue(ControlProtocol.TryParseRequest(ValidV3Start(), challenges, out _, out _));
+    }
+
+    [TestMethod]
+    public void FrameOver8192BytesIsRejectedWithoutSecretInError()
+    {
+        var json = ValidV3Start().Replace("header.payload.signature", new string('a', 8200), StringComparison.Ordinal);
+        Assert.IsTrue(System.Text.Encoding.UTF8.GetByteCount(json) > 8192);
+        Assert.IsFalse(ControlProtocol.TryParseRequest(json, out _, out var error));
+        Assert.IsFalse(ControlProtocol.Serialize(error!).Contains("SENTINEL_PROXY_SECRET_42", StringComparison.Ordinal));
+    }
+
+    private static string ValidV3Start(string correlationId = "0123456789abcdef0123456789abcdef") =>
+        "{\"type\":\"start\",\"correlationId\":\"" + correlationId +
+        "\",\"protocolVersion\":3,\"mode\":\"ProcessMode\",\"processName\":\"pso2.exe\",\"targetPid\":4242," +
+        "\"profileReference\":\"profile-0\",\"serverReference\":\"server-0\",\"permit\":\"header.payload.signature\"," +
+        "\"runtimeConfig\":{\"schemaVersion\":1,\"configVersion\":18,\"endpointId\":\"japan-vps-1\"," +
+        "\"host\":\"127.0.0.1\",\"port\":8389,\"protocol\":\"shadowsocks\",\"cipher\":\"aes-256-gcm\"," +
+        "\"credential\":\"SENTINEL_PROXY_SECRET_42\",\"issuedAt\":1000,\"expiresAt\":1120}}";
+
+    private static string MutateV3Start(string mutation)
+    {
+        var json = ValidV3Start();
+        return mutation switch
+        {
+            "REMOVE_RUNTIME" => json.Replace(",\"runtimeConfig\":" + RuntimeObject(), string.Empty, StringComparison.Ordinal),
+            "NON_OBJECT" => json.Replace(RuntimeObject(), "[]", StringComparison.Ordinal),
+            "DUPLICATE" => json.Replace("\"schemaVersion\":1", "\"schemaVersion\":1,\"schemaVersion\":1", StringComparison.Ordinal),
+            "EXTRA" => json.Replace("\"expiresAt\":1120", "\"expiresAt\":1120,\"extra\":1", StringComparison.Ordinal),
+            "MISSING" => json.Replace("\"endpointId\":\"japan-vps-1\",", string.Empty, StringComparison.Ordinal),
+            "WRONG_SCHEMA" => json.Replace("\"schemaVersion\":1", "\"schemaVersion\":2", StringComparison.Ordinal),
+            "OVERSIZED_CREDENTIAL" => json.Replace("SENTINEL_PROXY_SECRET_42", new string('s', 257), StringComparison.Ordinal),
+            "CONFIG_BOOL" => json.Replace("\"configVersion\":18", "\"configVersion\":true", StringComparison.Ordinal),
+            "CONFIG_STRING" => json.Replace("\"configVersion\":18", "\"configVersion\":\"18\"", StringComparison.Ordinal),
+            "CONFIG_UNSAFE" => json.Replace("\"configVersion\":18", "\"configVersion\":9007199254740992", StringComparison.Ordinal),
+            "ISSUED_STRING" => json.Replace("\"issuedAt\":1000", "\"issuedAt\":\"1000\"", StringComparison.Ordinal),
+            "EXPIRES_BOOL" => json.Replace("\"expiresAt\":1120", "\"expiresAt\":false", StringComparison.Ordinal),
+            "BAD_LIFETIME" => json.Replace("\"expiresAt\":1120", "\"expiresAt\":1119", StringComparison.Ordinal),
+            "TOP_EXTRA" => json.Insert(json.Length - 1, ",\"extra\":true"),
+            "TOP_MISSING" => json.Replace(",\"permit\":\"header.payload.signature\"", string.Empty, StringComparison.Ordinal),
+            _ => throw new ArgumentOutOfRangeException(nameof(mutation))
+        };
+    }
+
+    private static string RuntimeObject()
+    {
+        var json = ValidV3Start();
+        var marker = "\"runtimeConfig\":";
+        return json.Substring(json.IndexOf(marker, StringComparison.Ordinal) + marker.Length, json.Length - json.IndexOf(marker, StringComparison.Ordinal) - marker.Length - 1);
     }
 }

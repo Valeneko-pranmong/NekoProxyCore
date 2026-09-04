@@ -23,7 +23,8 @@ public sealed class ControlRequest
         string? profileReference,
         string? serverReference,
         SensitivePermit? permit,
-        string? admittedChallenge)
+        string? admittedChallenge,
+        RuntimeProxyConfig? runtimeConfig)
     {
         Command = command;
         CorrelationId = correlationId;
@@ -33,6 +34,7 @@ public sealed class ControlRequest
         ServerReference = serverReference;
         Permit = permit;
         AdmittedChallenge = admittedChallenge;
+        RuntimeConfig = runtimeConfig;
     }
 
     public ControlCommand Command { get; }
@@ -43,6 +45,7 @@ public sealed class ControlRequest
     public string? ServerReference { get; }
     public SensitivePermit? Permit { get; }
     internal string? AdmittedChallenge { get; }
+    public RuntimeProxyConfig? RuntimeConfig { get; }
 
     public bool TryCreateStartRequest(out ProxyStartRequest? request, out ControlResponse? error)
     {
@@ -51,6 +54,7 @@ public sealed class ControlRequest
         if (Command != ControlCommand.Start ||
             TargetPid is null ||
             Permit is null ||
+            RuntimeConfig is null ||
             string.IsNullOrEmpty(AdmittedChallenge) ||
             !ProxyConfiguration.TryCreate(
                 ProxyModeKind.Process,
@@ -71,7 +75,8 @@ public sealed class ControlRequest
             configuration!,
             CorrelationId,
             permit: Permit,
-            admittedChallenge: AdmittedChallenge);
+            admittedChallenge: AdmittedChallenge,
+            runtimeConfig: RuntimeConfig);
         return true;
     }
 }

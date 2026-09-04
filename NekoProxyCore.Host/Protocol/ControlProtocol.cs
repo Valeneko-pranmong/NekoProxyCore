@@ -9,7 +9,7 @@ namespace NekoProxyCore.Host.Protocol;
 public static class ControlProtocol
 {
     public const string PipeName = "NekoProxyCoreControl";
-    public const int Version = 2;
+    public const int Version = 3;
     public const int MaxFrameBytes = 8 * 1024;
     public const int MaxPermitCharacters = 4096;
 
@@ -69,7 +69,7 @@ public static class ControlProtocol
                 ControlCommand.Start => new HashSet<string>(StringComparer.Ordinal)
                 {
                     "type", "correlationId", "protocolVersion", "processName", "targetPid", "mode",
-                    "profileReference", "serverReference", "permit"
+                    "profileReference", "serverReference", "permit", "runtimeConfig"
                 },
                 ControlCommand.RuntimeConfigValidate => new HashSet<string>(StringComparer.Ordinal)
                 {
@@ -86,6 +86,7 @@ public static class ControlProtocol
             string? serverReference = null;
             SensitivePermit? permit = null;
             string? admittedChallenge = null;
+            RuntimeProxyConfig? runtimeConfig = null;
             if (command == ControlCommand.Start)
             {
                 if (!TryGetInt(root, "protocolVersion", out var protocolVersion) || protocolVersion != Version ||
@@ -100,7 +101,8 @@ public static class ControlProtocol
                     !ServerReferencePattern.IsMatch(serverReference) ||
                     !TryGetString(root, "permit", out var permitText) ||
                     !IsStructurallyBoundedCompactPermit(permitText) ||
-                    !SensitivePermit.TryCreate(permitText, MaxPermitCharacters, out permit))
+                    !SensitivePermit.TryCreate(permitText, MaxPermitCharacters, out permit) ||
+                    !TryParseRuntimeConfig(root, out runtimeConfig))
                 {
                     return Fail(out error, correlationId);
                 }
@@ -133,10 +135,15 @@ public static class ControlProtocol
                 profileReference,
                 serverReference,
                 permit,
-                admittedChallenge);
+                admittedChallenge,
+                runtimeConfig);
             return true;
         }
         catch (JsonException)
+        {
+            return Fail(out error);
+        }
+        catch (ArgumentException)
         {
             return Fail(out error);
         }
@@ -328,6 +335,36 @@ public static class ControlProtocol
                     '-' or '_'));
     }
 
+    private static bool TryParseRuntimeConfig(JsonElement root, out RuntimeProxyConfig? config)
+    {
+        config = null;
+        if (!root.TryGetProperty("runtimeConfig", out var value) ||
+            value.ValueKind != JsonValueKind.Object || HasDuplicateProperties(value) ||
+            !HasExactFields(value, new HashSet<string>(StringComparer.Ordinal)
+            {
+                "schemaVersion", "configVersion", "endpointId", "host", "port", "protocol",
+                "cipher", "credential", "issuedAt", "expiresAt"
+            }) ||
+            !TryGetInt(value, "schemaVersion", out var schemaVersion) ||
+            !TryGetLong(value, "configVersion", out var configVersion) ||
+            !TryGetString(value, "endpointId", out var endpointId) ||
+            !TryGetString(value, "host", out var host) ||
+            !TryGetInt(value, "port", out var port) ||
+            !TryGetString(value, "protocol", out var protocol) ||
+            !TryGetString(value, "cipher", out var cipher) ||
+            !TryGetString(value, "credential", out var credential) ||
+            !TryGetLong(value, "issuedAt", out var issuedAt) ||
+            !TryGetLong(value, "expiresAt", out var expiresAt))
+        {
+            return false;
+        }
+
+        config = new RuntimeProxyConfig(
+            schemaVersion, configVersion, endpointId, host, port, protocol, cipher,
+            new SensitiveRuntimeCredential(credential), issuedAt, expiresAt);
+        return true;
+    }
+
     private static bool TryGetString(JsonElement root, string name, out string value)
     {
         value = string.Empty;
@@ -350,6 +387,14 @@ public static class ControlProtocol
         return root.TryGetProperty(name, out var property) &&
                property.ValueKind == JsonValueKind.Number &&
                property.TryGetUInt32(out value);
+    }
+
+    private static bool TryGetLong(JsonElement root, string name, out long value)
+    {
+        value = default;
+        return root.TryGetProperty(name, out var property) &&
+               property.ValueKind == JsonValueKind.Number &&
+               property.TryGetInt64(out value);
     }
 
     private static bool Fail(out ControlResponse? error, string correlationId = "invalid")
