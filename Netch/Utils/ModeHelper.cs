@@ -21,13 +21,19 @@ public static class ModeHelper
         JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.Never;
     }
 
-    public static Mode LoadMode(string file)
+    public static Mode LoadMode(string file) =>
+        LoadMode(file, ModeService.Instance.ModeDirectoryFullName);
+
+    public static Mode LoadMode(string file, string modeRoot)
     {
+        if (string.IsNullOrWhiteSpace(modeRoot))
+            throw new ArgumentException("A mode root is required.", nameof(modeRoot));
+
         if (file.EndsWith(".json"))
             return LoadJsonMode(file);
 
         if (file.EndsWith(".txt"))
-            return ReadTxtMode(file);
+            return ReadTxtMode(file, Path.GetFullPath(modeRoot));
 
         throw new NotSupportedException();
     }
@@ -46,7 +52,7 @@ public static class ModeHelper
         JsonSerializer.Serialize(fs, mode, JsonSerializerOptions);
     }
 
-    private static Mode ReadTxtMode(string file)
+    private static Mode ReadTxtMode(string file, string modeRoot)
     {
         Mode mode;
         var ls = File.ReadAllLines(file);
@@ -86,7 +92,7 @@ public static class ModeHelper
             if (l.StartsWith("#include"))
             {
                 var relativePath = l["#include ".Length..].Replace("<", "").Replace(">", "").Replace(".h", ".txt").Trim();
-                includeMode = ReadTxtMode(ModeService.Instance.GetFullPath(relativePath));
+                includeMode = ReadTxtMode(Path.Combine(modeRoot, relativePath), modeRoot);
             }
 
             switch (mode)

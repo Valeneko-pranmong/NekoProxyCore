@@ -1,5 +1,20 @@
 /.vs
 /.idea
 /release
-/packages
+/artifacts
 /TestResults
+/.hermes-verify-dotnet
+/.hermes
+/packages
+/NekoProxyCore.Host/bin/
+/NekoProxyCore.Host/obj/
+/Tests.Windows/bin/
+/Tests.Windows/obj/
+/Tests.ProcessChild/bin/
+/Tests.ProcessChild/obj/
+/NekoProxyCore.SettingsTool/bin/
+/NekoProxyCore.SettingsTool/obj/
+/Original setting/
+/tools/*.pem
+**/runtime-settings.key
+**/runtime-settings.nkps

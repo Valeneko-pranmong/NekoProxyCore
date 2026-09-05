@@ -26,8 +26,20 @@ extern string tgtPassword;
 extern vector<wstring> bypassList;
 extern vector<wstring> handleList;
 
-extern atomic_ullong UP;
-extern atomic_ullong DL;
+atomic_ullong UP = { 0 };
+atomic_ullong DL = { 0 };
+
+std::atomic<uint64_t> g_tcp_connect_total{ 0 };
+std::atomic<uint32_t> g_tcp_active{ 0 };
+std::atomic<uint64_t> g_tcp_closed_total{ 0 };
+std::atomic<uint64_t> g_udp_event_total{ 0 };
+std::atomic<uint64_t> g_dns_query_total{ 0 };
+std::atomic<uint64_t> g_dns_failure_total{ 0 };
+std::atomic<uint64_t> g_redirect_success_total{ 0 };
+std::atomic<uint64_t> g_redirect_failure_total{ 0 };
+std::atomic<uint64_t> g_rx_bytes{ 0 };
+std::atomic<uint64_t> g_tx_bytes{ 0 };
+std::atomic<uint64_t> g_network_error_total{ 0 };
 
 NF_EventHandler EventHandler = {
 	threadStart,
@@ -63,6 +75,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
 }
 
 extern "C" {
+	__declspec(dllexport) void __cdecl aio_getStats(NF_STATS* stats);
+	__declspec(dllexport) void __cdecl aio_resetStats();
+
 	__declspec(dllexport) BOOL __cdecl aio_register(LPWSTR value)
 	{
 		auto status = nf_registerDriver(ws2s(value).c_str());
@@ -174,6 +189,8 @@ extern "C" {
 
 	__declspec(dllexport) BOOL __cdecl aio_init()
 	{
+		aio_resetStats();
+
 		WSADATA data;
 		if (WSAStartup(MAKEWORD(2, 2), &data) != NO_ERROR)
 		{
@@ -336,5 +353,37 @@ extern "C" {
 	__declspec(dllexport) ULONG64 __cdecl aio_getDL()
 	{
 		return DL;
+	}
+
+	__declspec(dllexport) void __cdecl aio_getStats(NF_STATS* stats)
+	{
+		if (!stats) return;
+		stats->tcp_connect_total      = g_tcp_connect_total.load(std::memory_order_relaxed);
+		stats->tcp_active             = g_tcp_active.load(std::memory_order_relaxed);
+		stats->_reserved              = 0;
+		stats->tcp_closed_total       = g_tcp_closed_total.load(std::memory_order_relaxed);
+		stats->udp_event_total        = g_udp_event_total.load(std::memory_order_relaxed);
+		stats->dns_query_total        = g_dns_query_total.load(std::memory_order_relaxed);
+		stats->dns_failure_total      = g_dns_failure_total.load(std::memory_order_relaxed);
+		stats->redirect_success_total = g_redirect_success_total.load(std::memory_order_relaxed);
+		stats->redirect_failure_total = g_redirect_failure_total.load(std::memory_order_relaxed);
+		stats->rx_bytes               = g_rx_bytes.load(std::memory_order_relaxed);
+		stats->tx_bytes               = g_tx_bytes.load(std::memory_order_relaxed);
+		stats->network_error_total    = g_network_error_total.load(std::memory_order_relaxed);
+	}
+
+	__declspec(dllexport) void __cdecl aio_resetStats()
+	{
+		g_tcp_connect_total.store(0, std::memory_order_relaxed);
+		g_tcp_active.store(0, std::memory_order_relaxed);
+		g_tcp_closed_total.store(0, std::memory_order_relaxed);
+		g_udp_event_total.store(0, std::memory_order_relaxed);
+		g_dns_query_total.store(0, std::memory_order_relaxed);
+		g_dns_failure_total.store(0, std::memory_order_relaxed);
+		g_redirect_success_total.store(0, std::memory_order_relaxed);
+		g_redirect_failure_total.store(0, std::memory_order_relaxed);
+		g_rx_bytes.store(0, std::memory_order_relaxed);
+		g_tx_bytes.store(0, std::memory_order_relaxed);
+		g_network_error_total.store(0, std::memory_order_relaxed);
 	}
 }

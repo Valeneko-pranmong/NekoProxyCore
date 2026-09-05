@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net6.0;net6.0-windows</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <PlatformTarget>x64</PlatformTarget>
+    <Platforms>x64</Platforms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NekoProxyCore.Core\NekoProxyCore.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net6.0'">
+    <Compile Remove="NetchProcessModeConfigurationCatalog.cs" />
+    <Compile Remove="NetchProcessModeSessionResolver.cs" />
+    <Compile Remove="NetchRuntimeBootstrap.cs" />
+    <Compile Remove="ProtectedSettingsPayload.cs" />
+    <Compile Remove="ProtectedSettingsProvisioner.cs" />
+    <Compile Remove="ProductionProtectedSettingsValidator.cs" />
+    <Compile Remove="NetchRedirectorStatisticsProvider.cs" />
+    <Compile Remove="LegacyProxyRttProducer.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net6.0-windows'">
+    <ProjectReference Include="..\Netch\Netch.csproj"
+                      AdditionalProperties="HeadlessCoreBuild=true;Platform=x64;GenerateDependencyFile=false;RuntimeIdentifier=win-x64" />
+  </ItemGroup>
+
+</Project>

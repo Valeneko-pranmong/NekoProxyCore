@@ -543,7 +543,7 @@ public partial class MainForm : Form
 
         try
         {
-            await MainController.StartAsync(server, mode);
+            await MainController.StartAsync(server, mode, new MainFormProxyStatusSink(this));
         }
         catch (Exception exception)
         {

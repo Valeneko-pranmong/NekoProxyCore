@@ -1,0 +1,137 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>NekoProxyCore</AssemblyName>
+    <TargetFrameworks>net6.0;net6.0-windows</TargetFrameworks>
+    <RuntimeIdentifier Condition="'$(TargetFramework)' == 'net6.0-windows'">win-x64</RuntimeIdentifier>
+    <PlatformTarget>x64</PlatformTarget>
+    <SelfContained>false</SelfContained>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <NekoV2rayRuntimeFile Condition="'$(NekoV2rayRuntimeFile)' == ''">$(MSBuildThisFileDirectory)..\Storage\v2ray-sn.exe</NekoV2rayRuntimeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NekoProxyCore.Core\NekoProxyCore.Core.csproj" />
+    <ProjectReference Include="..\NekoProxyCore.Windows\NekoProxyCore.Windows.csproj" />
+    <ProjectReference Include="..\NekoProxyCore.Legacy\NekoProxyCore.Legacy.csproj" />
+    <ProjectReference Condition="'$(TargetFramework)' == 'net6.0-windows'"
+                      Include="..\Netch\Netch.csproj"
+                      AdditionalProperties="HeadlessCoreBuild=true;Platform=x64;GenerateDependencyFile=false;RuntimeIdentifier=win-x64" />
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('Authorization\production-public-keys.json')">
+    <EmbeddedResource Include="Authorization\production-public-keys.json"
+                      LogicalName="NekoProxyCore.Host.Authorization.production-public-keys.json" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net6.0-windows' and Exists('$(NekoProtectedSettingsKeyFile)')">
+    <EmbeddedResource Include="$(NekoProtectedSettingsKeyFile)"
+                      LogicalName="NekoProxyCore.Host.runtime-settings.key"
+                      WithCulture="false"
+                      Type="Non-Resx" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net6.0-windows' and Exists('$(NekoProtectedSettingsPayload)')">
+    <Content Include="$(NekoProtectedSettingsPayload)">
+      <Link>runtime-settings.nkps</Link>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <Target Condition="'$(TargetFramework)' == 'net6.0-windows'"
+          Name="VerifyProtectedSettingsPair"
+          BeforeTargets="Publish">
+    <Error Condition="'$(NekoProtectedSettingsKeyFile)' == '' or !Exists('$(NekoProtectedSettingsKeyFile)')"
+           Text="An external NekoProtectedSettingsKeyFile is required for production publish." />
+    <Error Condition="'$(NekoProtectedSettingsPayload)' == '' or !Exists('$(NekoProtectedSettingsPayload)')"
+           Text="An approved external NekoProtectedSettingsPayload is required for production publish." />
+    <PropertyGroup>
+      <ProtectedSettingsProvisioningTool>$(MSBuildThisFileDirectory)..\NekoProxyCore.SettingsTool\bin\x64\$(Configuration)\net6.0-windows\win-x64\NekoProxyCore.SettingsTool.dll</ProtectedSettingsProvisioningTool>
+    </PropertyGroup>
+    <MSBuild Projects="$(MSBuildThisFileDirectory)..\NekoProxyCore.SettingsTool\NekoProxyCore.SettingsTool.csproj"
+             Targets="Restore;Build"
+             Properties="Configuration=$(Configuration);Platform=x64;RuntimeIdentifier=win-x64" />
+    <Exec Command="dotnet &quot;$(ProtectedSettingsProvisioningTool)&quot; verify &quot;$(NekoProtectedSettingsPayload)&quot; &quot;$(NekoProtectedSettingsKeyFile)&quot; &quot;$(MSBuildThisFileDirectory)..\Storage\mode&quot;" />
+  </Target>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net6.0-windows'">
+    <Content Include="..\Storage\mode\**\*">
+      <Link>mode\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\Storage\i18n\**\*">
+      <Link>i18n\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\Storage\*"
+             Exclude="..\Storage\v2ray-sn.exe">
+      <Link>bin\%(Filename)%(Extension)</Link>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <Target Condition="'$(TargetFramework)' == 'net6.0-windows'"
+          Name="StageLegacyRuntimeBin"
+          AfterTargets="Publish">
+    <ItemGroup>
+      <LegacyRuntimeBinFile Include="$(PublishDir)*.dll"
+                            Exclude="$(PublishDir)NekoProxyCore.dll;$(PublishDir)NekoProxyCore.Legacy.dll;$(PublishDir)NekoProxyCore.Windows.dll">
+        <DestinationSubDirectory></DestinationSubDirectory>
+      </LegacyRuntimeBinFile>
+      <LegacyRuntimeBinFile Include="$(PublishDir)amd64\*.dll">
+        <DestinationSubDirectory>amd64\</DestinationSubDirectory>
+      </LegacyRuntimeBinFile>
+    </ItemGroup>
+    <Copy SourceFiles="@(LegacyRuntimeBinFile)"
+          DestinationFiles="@(LegacyRuntimeBinFile->'$(PublishDir)bin\%(DestinationSubDirectory)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Condition="'$(TargetFramework)' == 'net6.0-windows'"
+          Name="StageRequiredNativeRuntime"
+          BeforeTargets="Publish">
+    <ItemGroup>
+      <RequiredNativeRuntimeFile Include="$(MSBuildThisFileDirectory)..\Redirector\bin\Release\Redirector.bin" />
+      <RequiredNativeRuntimeFile Include="$(MSBuildThisFileDirectory)..\Redirector\bin\Release\nfapi.dll" />
+    </ItemGroup>
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\Redirector\bin\Release\Redirector.bin')"
+           Text="Fresh Release Redirector.bin is required for production publish." />
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\Redirector\bin\Release\nfapi.dll')"
+           Text="Fresh Release nfapi.dll is required for production publish." />
+    <Copy SourceFiles="@(RequiredNativeRuntimeFile)"
+          DestinationFiles="@(RequiredNativeRuntimeFile->'$(PublishDir)bin\%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Condition="'$(TargetFramework)' == 'net6.0-windows'"
+          Name="StageRequiredV2rayRuntime"
+          BeforeTargets="Publish">
+    <PropertyGroup>
+      <ApprovedV2raySha256>a219f435671fb214c0c530084c65e576fdc1404f40b187b5586e869d2a3e4dff</ApprovedV2raySha256>
+    </PropertyGroup>
+    <Error Condition="'$(NekoV2rayRuntimeFile)' == '' or !Exists('$(NekoV2rayRuntimeFile)')"
+           Text="The approved v2ray-sn.exe input is required for production publish." />
+    <ItemGroup Condition="Exists('$(NekoV2rayRuntimeFile)')">
+      <ApprovedV2rayRuntimeFile Include="$(NekoV2rayRuntimeFile)" />
+    </ItemGroup>
+    <GetFileHash Files="@(ApprovedV2rayRuntimeFile)"
+                 Algorithm="SHA256"
+                 HashEncoding="hex"
+                 Condition="'@(ApprovedV2rayRuntimeFile)' != ''">
+      <Output TaskParameter="Items" ItemName="ApprovedV2rayRuntimeFileWithHash" />
+    </GetFileHash>
+    <PropertyGroup>
+      <ApprovedV2rayRuntimeHash>@(ApprovedV2rayRuntimeFileWithHash->'%(FileHash)')</ApprovedV2rayRuntimeHash>
+    </PropertyGroup>
+    <Error Condition="'$([System.String]::Copy($(ApprovedV2rayRuntimeHash)).ToLowerInvariant())' != '$(ApprovedV2raySha256)'"
+           Text="The v2ray-sn.exe input does not match the approved production hash." />
+    <Copy SourceFiles="@(ApprovedV2rayRuntimeFile)"
+          DestinationFiles="$(PublishDir)bin\v2ray-sn.exe"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

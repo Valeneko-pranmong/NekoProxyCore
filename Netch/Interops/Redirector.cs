@@ -53,6 +53,34 @@ public static class Redirector
         return Task.Run(aio_free);
     }
 
+    [StructLayout(LayoutKind.Sequential, Pack = 8)]
+    public struct RedirectorStatistics
+    {
+        public ulong TcpConnectTotal;
+        public uint TcpActive;
+        private uint _reserved;
+        public ulong TcpClosedTotal;
+        public ulong UdpEventTotal;
+        public ulong DnsQueryTotal;
+        public ulong DnsFailureTotal;
+        public ulong RedirectSuccessTotal;
+        public ulong RedirectFailureTotal;
+        public ulong RxBytes;
+        public ulong TxBytes;
+        public ulong NetworkErrorTotal;
+    }
+
+    public static RedirectorStatistics GetStats()
+    {
+        aio_getStats(out var stats);
+        return stats;
+    }
+
+    public static void ResetStats()
+    {
+        aio_resetStats();
+    }
+
     private const string Redirector_bin = "Redirector.bin";
 
     [DllImport(Redirector_bin, CallingConvention = CallingConvention.Cdecl)]
@@ -75,4 +103,10 @@ public static class Redirector
 
     [DllImport(Redirector_bin, CallingConvention = CallingConvention.Cdecl)]
     private static extern ulong aio_getDL();
+
+    [DllImport(Redirector_bin, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void aio_getStats(out RedirectorStatistics stats);
+
+    [DllImport(Redirector_bin, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void aio_resetStats();
 }

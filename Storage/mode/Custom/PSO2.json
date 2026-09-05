@@ -1,0 +1,23 @@
+{
+  "type": "ProcessMode",
+  "remark": {
+    "en-US": "PSO2"
+  },
+  "handle": [
+    "pso2.exe",
+    "pso2launcher.exe",
+    "pso2updater.exe"
+  ],
+  "bypass": [],
+  "filterIntranet": false,
+  "filterLoopback": false,
+  "dnsHost": "1.1.1.1:53",
+  "handleOnlyDNS": null,
+  "icmpDelay": 10,
+  "filterParent": true,
+  "filterDNS": null,
+  "filterUDP": null,
+  "filterTCP": null,
+  "filterICMP": null,
+  "dnsProxy": null
+}

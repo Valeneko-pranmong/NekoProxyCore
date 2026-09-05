@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PlatformTarget>x64</PlatformTarget>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>Tests</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\NekoProxyCore.Core\NekoProxyCore.Core.csproj" />
+    <ProjectReference Include="..\NekoProxyCore.Host\NekoProxyCore.Host.csproj" />
+    <ProjectReference Include="..\NekoProxyCore.Legacy\NekoProxyCore.Legacy.csproj" />
+    <ProjectReference Include="..\Tests.ProcessChild\Tests.ProcessChild.csproj"
+                      ReferenceOutputAssembly="false"
+                      OutputItemType="Content"
+                      CopyToOutputDirectory="PreserveNewest" />
+    <ProjectReference Include="..\Netch\Netch.csproj"
+                      AdditionalProperties="HeadlessCoreBuild=true;Platform=x64;GenerateDependencyFile=false" />
+    <None Include="..\Redirector\bin\Release\Redirector.bin" Link="Redirector.bin" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\Redirector\static\nfapi.dll" Link="nfapi.dll" CopyToOutputDirectory="PreserveNewest" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.2.0" />
+    <PackageReference Include="MSTest.TestAdapter" Version="2.2.10" />
+    <PackageReference Include="MSTest.TestFramework" Version="2.2.10" />
+  </ItemGroup>
+</Project>
