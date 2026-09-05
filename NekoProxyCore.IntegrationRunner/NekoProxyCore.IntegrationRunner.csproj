@@ -1,0 +1,72 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net6.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PlatformTarget>x64</PlatformTarget>
+    <SelfContained>false</SelfContained>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <LegacyOutput>$(MSBuildProjectDirectory)\..\Netch\bin\x64\Release</LegacyOutput>
+    <WindowsRuntimeAssetDirectory>$(LegacyOutput)\runtimes\win\lib\net6.0</WindowsRuntimeAssetDirectory>
+  </PropertyGroup>
+
+  <!--
+    The legacy Netch project must be built separately with Visual Studio MSBuild. Referencing
+    verified Release artifacts here prevents dotnet publish from rebuilding unrelated WinForms
+    resources while still producing an official, repeatable integration runner.
+  -->
+  <ItemGroup>
+    <Reference Include="NekoProxyCore.Core">
+      <HintPath>$(MSBuildProjectDirectory)\..\NekoProxyCore.Core\bin\Release\net6.0\NekoProxyCore.Core.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="NekoProxyCore.Windows">
+      <HintPath>$(MSBuildProjectDirectory)\..\NekoProxyCore.Windows\bin\Release\net6.0\NekoProxyCore.Windows.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="NekoProxyCore.Legacy">
+      <HintPath>$(MSBuildProjectDirectory)\..\NekoProxyCore.Legacy\bin\x64\Release\net6.0-windows\NekoProxyCore.Legacy.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Netch">
+      <HintPath>$(LegacyOutput)\Netch.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <VerifiedIntegrationArtifact Include="$(MSBuildProjectDirectory)\..\NekoProxyCore.Core\bin\Release\net6.0\NekoProxyCore.Core.dll" />
+    <VerifiedIntegrationArtifact Include="$(MSBuildProjectDirectory)\..\NekoProxyCore.Windows\bin\Release\net6.0\NekoProxyCore.Windows.dll" />
+    <VerifiedIntegrationArtifact Include="$(MSBuildProjectDirectory)\..\NekoProxyCore.Legacy\bin\x64\Release\net6.0-windows\NekoProxyCore.Legacy.dll" />
+    <VerifiedIntegrationArtifact Include="$(LegacyOutput)\Netch.dll" />
+    <WindowsRuntimeAsset Include="$(WindowsRuntimeAssetDirectory)\*.dll" />
+    <LegacyManagedDependency Include="$(LegacyOutput)\*.dll"
+                             Exclude="$(LegacyOutput)\NekoProxyCore.Core.dll;
+                                      $(LegacyOutput)\NekoProxyCore.Windows.dll;
+                                      $(LegacyOutput)\NekoProxyCore.Legacy.dll;
+                                      $(LegacyOutput)\Netch.dll;
+                                      $(LegacyOutput)\System.ServiceProcess.ServiceController.dll" />
+  </ItemGroup>
+
+  <Target Name="VerifyIntegrationArtifacts" BeforeTargets="ResolveReferences">
+    <Error Condition="!Exists('%(VerifiedIntegrationArtifact.Identity)')"
+           Text="Required verified integration artifact is missing: %(VerifiedIntegrationArtifact.Identity)" />
+    <Error Condition="'@(WindowsRuntimeAsset)' == ''"
+           Text="No RID-specific Windows runtime assets were found in $(WindowsRuntimeAssetDirectory)." />
+  </Target>
+
+  <Target Name="StageWindowsRuntimeAssets" AfterTargets="Publish">
+    <Copy SourceFiles="@(LegacyManagedDependency)"
+          DestinationFolder="$(PublishDir)"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(WindowsRuntimeAsset)"
+          DestinationFolder="$(PublishDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

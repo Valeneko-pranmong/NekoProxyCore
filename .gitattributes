@@ -1,0 +1,3 @@
+# Keep the relocated legacy upstream README reviewable as text.
+docs/reference/legacy-netch-upstream.md text eol=lf
+Storage/v2ray-sn.exe binary

@@ -1,4 +1,5 @@
 using System.Net;
+using System.Security.Cryptography;
 using System.Text.Json;
 using Netch.Controllers;
 using Netch.Interfaces;
@@ -26,12 +27,17 @@ public class V2rayController : Guard, IServerController
 
     public virtual async Task<Socks5Server> StartAsync(Server s)
     {
-        await using (var fileStream = new FileStream(Constants.TempConfig, FileMode.Create, FileAccess.Write, FileShare.Read))
+        var config = JsonSerializer.SerializeToUtf8Bytes(
+            await V2rayConfigUtils.GenerateClientConfigAsync(s),
+            Global.NewCustomJsonSerializerOptions());
+        try
         {
-            await JsonSerializer.SerializeAsync(fileStream, await V2rayConfigUtils.GenerateClientConfigAsync(s), Global.NewCustomJsonSerializerOptions());
+            await StartGuardWithStandardInputAsync("run -format=json", config);
         }
-
-        await StartGuardAsync("run -c ..\\data\\last.json");
+        finally
+        {
+            CryptographicOperations.ZeroMemory(config);
+        }
         return new Socks5Server(IPAddress.Loopback.ToString(), this.Socks5LocalPort(), s.Hostname);
     }
 }

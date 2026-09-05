@@ -47,7 +47,7 @@ bool TCPHandler::INIT()
 			return false;
 		}
 	}
-	
+
 	if (listen(client, 1024) == SOCKET_ERROR)
 	{
 		printf("[Redirector][TCPHandler::INIT] Listen socket failed: %d\n", WSAGetLastError());
@@ -140,6 +140,8 @@ void TCPHandler::Handle(SOCKET client)
 
 		if (getpeername(client, (PSOCKADDR)&addr, &addrLength) == SOCKET_ERROR)
 		{
+			g_network_error_total.fetch_add(1, std::memory_order_relaxed);
+			g_redirect_failure_total.fetch_add(1, std::memory_order_relaxed);
 			closesocket(client);
 			return;
 		}
@@ -152,6 +154,7 @@ void TCPHandler::Handle(SOCKET client)
 	{
 		tcpLock.unlock();
 
+		g_redirect_failure_total.fetch_add(1, std::memory_order_relaxed);
 		closesocket(client);
 		return;
 	}
@@ -162,14 +165,21 @@ void TCPHandler::Handle(SOCKET client)
 	auto remote = new SocksHelper::TCP();
 	if (!remote->Connect(&target))
 	{
+		g_redirect_failure_total.fetch_add(1, std::memory_order_relaxed);
 		closesocket(client);
 
 		delete remote;
 		return;
 	}
 
+	g_redirect_success_total.fetch_add(1, std::memory_order_relaxed);
+	g_tcp_active.fetch_add(1, std::memory_order_relaxed);
+
 	thread(TCPHandler::Send, client, remote).detach();
 	TCPHandler::Read(client, remote);
+
+	g_tcp_active.fetch_sub(1, std::memory_order_relaxed);
+	g_tcp_closed_total.fetch_add(1, std::memory_order_relaxed);
 
 	closesocket(client);
 	delete remote;
@@ -178,14 +188,34 @@ void TCPHandler::Handle(SOCKET client)
 void TCPHandler::Read(SOCKET client, SocksHelper::PTCP remote)
 {
 	char buffer[1446];
-	
+
 	while (tcpSocket != INVALID_SOCKET)
 	{
 		int length = remote->Read(buffer, sizeof(buffer));
 		if (length == 0 || length == SOCKET_ERROR)
+		{
+			if (length == SOCKET_ERROR)
+			{
+				int err = WSAGetLastError();
+				if (err != WSAEINTR && err != 0)
+					g_network_error_total.fetch_add(1, std::memory_order_relaxed);
+			}
 			return;
+		}
 
-		if (send(client, buffer, length, 0) != length)
+		int sent = send(client, buffer, length, 0);
+		if (sent == SOCKET_ERROR)
+		{
+			int err = WSAGetLastError();
+			if (err != WSAEINTR && err != 0)
+				g_network_error_total.fetch_add(1, std::memory_order_relaxed);
+			return;
+		}
+		if (sent > 0)
+		{
+			g_rx_bytes.fetch_add(sent, std::memory_order_relaxed);
+		}
+		if (sent != length)
 			return;
 	}
 }
@@ -198,9 +228,29 @@ void TCPHandler::Send(SOCKET client, SocksHelper::PTCP remote)
 	{
 		int length = recv(client, buffer, sizeof(buffer), 0);
 		if (length == 0 || length == SOCKET_ERROR)
+		{
+			if (length == SOCKET_ERROR)
+			{
+				int err = WSAGetLastError();
+				if (err != WSAEINTR && err != 0)
+					g_network_error_total.fetch_add(1, std::memory_order_relaxed);
+			}
 			return;
+		}
 
-		if (remote->Send(buffer, length) != length)
+		int sent = remote->Send(buffer, length);
+		if (sent == SOCKET_ERROR)
+		{
+			int err = WSAGetLastError();
+			if (err != WSAEINTR && err != 0)
+				g_network_error_total.fetch_add(1, std::memory_order_relaxed);
+			return;
+		}
+		if (sent > 0)
+		{
+			g_tx_bytes.fetch_add(sent, std::memory_order_relaxed);
+		}
+		if (sent != length)
 			return;
 	}
 }

@@ -10,6 +10,7 @@ SOCKADDR_IN6 dnsAddr;
 
 void HandleClientDNS(ENDPOINT_ID id, PSOCKADDR_IN6 target, char* packet, int length, PNF_UDP_OPTIONS option)
 {
+	bool success = false;
 	auto remote = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
 	if (remote != INVALID_SOCKET)
 	{
@@ -24,6 +25,8 @@ void HandleClientDNS(ENDPOINT_ID id, PSOCKADDR_IN6 target, char* packet, int len
 			{
 				if (sendto(remote, packet, length, 0, (PSOCKADDR)&dnsAddr, (dnsAddr.sin6_family == AF_INET ? sizeof(SOCKADDR_IN) : sizeof(SOCKADDR_IN6))) == length)
 				{
+					g_tx_bytes.fetch_add(length, std::memory_order_relaxed);
+
 					timeval timeout{};
 					timeout.tv_sec = 4;
 
@@ -31,18 +34,51 @@ void HandleClientDNS(ENDPOINT_ID id, PSOCKADDR_IN6 target, char* packet, int len
 					FD_ZERO(&fds);
 					FD_SET(remote, &fds);
 
-					int size = select(NULL, &fds, NULL, NULL, &timeout);
+					int size = select(0, &fds, NULL, NULL, &timeout);
 					if (size != 0 && size != SOCKET_ERROR)
 					{
 						char buffer[1024];
 
 						size = recvfrom(remote, buffer, sizeof(buffer), 0, NULL, NULL);
 						if (size != 0 && size != SOCKET_ERROR)
+						{
+							g_rx_bytes.fetch_add(size, std::memory_order_relaxed);
 							nf_udpPostReceive(id, (PBYTE)target, buffer, size, option);
+							success = true;
+						}
+						else if (size == SOCKET_ERROR)
+						{
+							g_network_error_total.fetch_add(1, std::memory_order_relaxed);
+						}
+					}
+					else if (size == SOCKET_ERROR)
+					{
+						g_network_error_total.fetch_add(1, std::memory_order_relaxed);
 					}
 				}
+				else
+				{
+					g_network_error_total.fetch_add(1, std::memory_order_relaxed);
+				}
+			}
+			else
+			{
+				g_network_error_total.fetch_add(1, std::memory_order_relaxed);
 			}
 		}
+		else
+		{
+			g_network_error_total.fetch_add(1, std::memory_order_relaxed);
+		}
+	}
+	else
+	{
+		g_network_error_total.fetch_add(1, std::memory_order_relaxed);
+	}
+
+	if (!success)
+	{
+		g_dns_failure_total.fetch_add(1, std::memory_order_relaxed);
 	}
 
 	if (remote != INVALID_SOCKET)
@@ -55,6 +91,7 @@ void HandleClientDNS(ENDPOINT_ID id, PSOCKADDR_IN6 target, char* packet, int len
 
 void HandleRemoteDNS(ENDPOINT_ID id, PSOCKADDR_IN6 target, char* packet, int length, PNF_UDP_OPTIONS option)
 {
+	bool success = false;
 	auto remote = new SocksHelper::UDP();
 	if (remote->Associate())
 	{
@@ -62,6 +99,8 @@ void HandleRemoteDNS(ENDPOINT_ID id, PSOCKADDR_IN6 target, char* packet, int len
 		{
 			if (remote->Send(&dnsAddr, packet, length) == length)
 			{
+				g_tx_bytes.fetch_add(length, std::memory_order_relaxed);
+
 				char buffer[1024];
 
 				timeval timeout{};
@@ -69,9 +108,18 @@ void HandleRemoteDNS(ENDPOINT_ID id, PSOCKADDR_IN6 target, char* packet, int len
 
 				int size = remote->Read(NULL, buffer, sizeof(buffer), &timeout);
 				if (size != 0 && size != SOCKET_ERROR)
+				{
+					g_rx_bytes.fetch_add(size, std::memory_order_relaxed);
 					nf_udpPostReceive(id, (PBYTE)target, buffer, size, option);
+					success = true;
+				}
 			}
 		}
+	}
+
+	if (!success)
+	{
+		g_dns_failure_total.fetch_add(1, std::memory_order_relaxed);
 	}
 
 	delete remote;
@@ -113,6 +161,8 @@ bool DNSHandler::IsDNS(PSOCKADDR_IN6 target)
 
 void DNSHandler::CreateHandler(ENDPOINT_ID id, PSOCKADDR_IN6 target, const char* packet, int length, PNF_UDP_OPTIONS options)
 {
+	g_dns_query_total.fetch_add(1, std::memory_order_relaxed);
+
 	auto remote = new SOCKADDR_IN6();
 	auto buffer = new char[length]();
 	auto option = (PNF_UDP_OPTIONS)new char[sizeof(NF_UDP_OPTIONS) + options->optionsLength];

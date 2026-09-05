@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.ServiceProcess;
+using NekoProxyCore.Core;
 using Netch.Interfaces;
 using Netch.Models;
 using Netch.Models.Modes;
@@ -15,6 +16,7 @@ public class NFController : IModeController
     private Server? _server;
     private Redirector _mode = null!;
     private RedirectorConfig _rdrConfig = null!;
+    private readonly IProxyStatusSink? _statusSink;
 
     private static readonly ServiceController NFService = new("netfilter2");
 
@@ -23,6 +25,11 @@ public class NFController : IModeController
     public string Name => "Redirector";
 
     public ModeFeature Features => ModeFeature.SupportIPv6 | ModeFeature.SupportSocks5Auth;
+
+    public NFController(IProxyStatusSink? statusSink = null)
+    {
+        _statusSink = statusSink;
+    }
 
     public async Task StartAsync(Socks5Server server, Mode mode)
     {
@@ -33,6 +40,7 @@ public class NFController : IModeController
         _mode = processMode;
         _rdrConfig = Global.Settings.Redirector;
 
+        PublishStartingStatus();
         CheckDriver();
 
         Dial(NameList.AIO_FILTERLOOPBACK, _mode.FilterLoopback);
@@ -148,7 +156,7 @@ public class NFController : IModeController
 
     #region DriverUtil
 
-    private static void CheckDriver()
+    private void CheckDriver()
     {
         var binFileVersion = Utils.Utils.GetFileVersion(Constants.NFDriver);
         var systemFileVersion = Utils.Utils.GetFileVersion(SystemDriver);
@@ -193,10 +201,10 @@ public class NFController : IModeController
     ///     安装 NF 驱动
     /// </summary>
     /// <returns>驱动是否安装成功</returns>
-    private static void InstallDriver()
+    private void InstallDriver()
     {
         Log.Information("Install netfilter2 driver");
-        Global.MainForm.StatusText(i18N.Translate("Installing netfilter2 driver"));
+        PublishStartingStatus();
 
         if (!File.Exists(Constants.NFDriver))
             throw new MessageException(i18N.Translate("builtin driver files missing, can't install NF driver"));
@@ -249,6 +257,21 @@ public class NFController : IModeController
         File.Delete(SystemDriver);
 
         return true;
+    }
+
+    private void PublishStartingStatus()
+    {
+        if (_statusSink == null)
+            return;
+
+        try
+        {
+            _statusSink.OnStatusChanged(new ProxyStatusEvent(ProxyStatusKind.Starting, string.Empty, DateTimeOffset.UtcNow));
+        }
+        catch
+        {
+            // Presentation code must not affect redirector/driver lifecycle.
+        }
     }
 
     #endregion

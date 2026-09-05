@@ -51,4 +51,36 @@ typedef enum _AIO_TYPE {
 	AIO_BYPNAME
 } AIO_TYPE;
 
+#pragma pack(push, 8)
+typedef struct _NF_STATS {
+	uint64_t tcp_connect_total;
+	uint32_t tcp_active;
+	uint32_t _reserved;
+	uint64_t tcp_closed_total;
+	uint64_t udp_event_total;
+	uint64_t dns_query_total;
+	uint64_t dns_failure_total;
+	uint64_t redirect_success_total;
+	uint64_t redirect_failure_total;
+	uint64_t rx_bytes;
+	uint64_t tx_bytes;
+	uint64_t network_error_total;
+} NF_STATS, *PNF_STATS;
+#pragma pack(pop)
+
+#include <atomic>
+#include <cstdint>
+
+extern std::atomic<uint64_t> g_tcp_connect_total;
+extern std::atomic<uint32_t> g_tcp_active;
+extern std::atomic<uint64_t> g_tcp_closed_total;
+extern std::atomic<uint64_t> g_udp_event_total;
+extern std::atomic<uint64_t> g_dns_query_total;
+extern std::atomic<uint64_t> g_dns_failure_total;
+extern std::atomic<uint64_t> g_redirect_success_total;
+extern std::atomic<uint64_t> g_redirect_failure_total;
+extern std::atomic<uint64_t> g_rx_bytes;
+extern std::atomic<uint64_t> g_tx_bytes;
+extern std::atomic<uint64_t> g_network_error_total;
+
 #endif
