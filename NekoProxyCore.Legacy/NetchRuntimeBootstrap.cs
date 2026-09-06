@@ -10,15 +10,17 @@ namespace NekoProxyCore.Legacy;
 /// </summary>
 public static class NetchRuntimeBootstrap
 {
-    public static async Task InitializeAsync(string runtimeRoot)
+    public static async Task InitializeAsync(string runtimeRoot, string? mutableRuntimeRoot = null)
     {
         if (string.IsNullOrWhiteSpace(runtimeRoot))
             throw new ArgumentException("A trusted runtime root is required.", nameof(runtimeRoot));
 
         var canonicalRoot = Path.GetFullPath(runtimeRoot);
-        Directory.SetCurrentDirectory(canonicalRoot);
+        var writeRoot = string.IsNullOrWhiteSpace(mutableRuntimeRoot) ? canonicalRoot : Path.GetFullPath(mutableRuntimeRoot);
+
+        Directory.SetCurrentDirectory(writeRoot);
         AppendPathOnce(Path.Combine(canonicalRoot, "bin"));
-        Directory.CreateDirectory(Path.Combine(canonicalRoot, "logging"));
+        Directory.CreateDirectory(Path.Combine(writeRoot, "logging"));
 
         await Configuration.LoadAsync().ConfigureAwait(false);
         LoadModes(canonicalRoot);
@@ -46,6 +48,7 @@ public static class NetchRuntimeBootstrap
         string runtimeRoot,
         string protectedSettingsPath,
         ReadOnlyMemory<byte> key,
+        string? mutableRuntimeRoot = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(runtimeRoot))
@@ -54,9 +57,11 @@ public static class NetchRuntimeBootstrap
             throw new ProtectedSettingsException();
 
         var canonicalRoot = Path.GetFullPath(runtimeRoot);
-        Directory.SetCurrentDirectory(canonicalRoot);
+        var writeRoot = string.IsNullOrWhiteSpace(mutableRuntimeRoot) ? canonicalRoot : Path.GetFullPath(mutableRuntimeRoot);
+
+        Directory.SetCurrentDirectory(writeRoot);
         AppendPathOnce(Path.Combine(canonicalRoot, "bin"));
-        Directory.CreateDirectory(Path.Combine(canonicalRoot, "logging"));
+        Directory.CreateDirectory(Path.Combine(writeRoot, "logging"));
 
         Global.Settings = new Netch.Models.Setting();
         Global.Modes.Clear();

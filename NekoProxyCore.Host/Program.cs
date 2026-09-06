@@ -12,7 +12,12 @@ internal static class Program
 {
     private static async Task<int> Main(string[] args)
     {
-        if (!LauncherProcessBinding.TryParseArguments(args, out var launcherProcessId))
+        if (args.Length == 1 && string.Equals(args[0], "--update-preflight", StringComparison.Ordinal))
+        {
+            return await ExecuteUpdatePreflightAsync().ConfigureAwait(false);
+        }
+
+        if (!LauncherProcessBinding.TryParseArguments(args, out var launcherProcessId, out var mutableRoot))
             return 2;
 
 #if !WINDOWS
@@ -45,7 +50,8 @@ internal static class Program
                     await NetchRuntimeBootstrap.InitializeProtectedAsync(
                             AppContext.BaseDirectory,
                             Path.Combine(AppContext.BaseDirectory, ProtectedSettingsPayload.DefaultFileName),
-                            settingsKey)
+                            settingsKey,
+                            mutableRoot)
                         .ConfigureAwait(false);
                 }
                 finally
@@ -119,6 +125,43 @@ internal static class Program
             }
         }
 #endif
+    }
+
+    private static async Task<int> ExecuteUpdatePreflightAsync()
+    {
+        try
+        {
+            var line = await Console.In.ReadLineAsync().ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                Console.WriteLine("{\"protocol_version\":1,\"result\":\"FAIL\",\"code\":\"PROTOCOL_INVALID\"}");
+                return 1;
+            }
+
+            var baseDir = AppContext.BaseDirectory;
+            var requiredFiles = new[]
+            {
+                Path.Combine(baseDir, "NekoProxyCore.dll"),
+                Path.Combine(baseDir, "runtime-settings.nkps"),
+            };
+
+            foreach (var req in requiredFiles)
+            {
+                if (!File.Exists(req))
+                {
+                    Console.WriteLine("{\"protocol_version\":1,\"result\":\"FAIL\",\"code\":\"CORE_INVENTORY_INVALID\"}");
+                    return 1;
+                }
+            }
+
+            Console.WriteLine("{\"protocol_version\":1,\"result\":\"PASS\",\"code\":null}");
+            return 0;
+        }
+        catch (Exception)
+        {
+            Console.WriteLine("{\"protocol_version\":1,\"result\":\"FAIL\",\"code\":\"SELFTEST_FAILED\"}");
+            return 1;
+        }
     }
 
     private sealed class NullStatusSink : IProxyStatusSink
