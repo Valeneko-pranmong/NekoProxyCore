@@ -24,6 +24,17 @@ public sealed class LauncherProcessBindingTests
         Assert.AreEqual(uint.MaxValue, launcherProcessId);
     }
 
+    [TestMethod]
+    public void CanonicalLauncherPidWithMutableRootArgumentIsAccepted()
+    {
+        Assert.IsTrue(LauncherProcessBinding.TryParseArguments(
+            new[] { "--launcher-pid", "1234", "--mutable-root", @"C:\Temp\Mutable" },
+            out var launcherProcessId,
+            out var mutableRoot));
+        Assert.AreEqual(1234u, launcherProcessId);
+        Assert.AreEqual(@"C:\Temp\Mutable", mutableRoot);
+    }
+
     [DataTestMethod]
     [DataRow()]
     [DataRow("--launcher-pid")]
