@@ -5,7 +5,7 @@ Updated: 2026-09-12
 ## Current canonical state
 - Canonical root: `E:\Github\NekoProxyCore`
 - Canonical branch: `main`
-- Canonical/main SHA at cleanup: `77b849f660a6ce923715eb5254594e4d0ee99ec3`
+- Canonical `main` should be verified against live `origin/main` before work; do not infer released Core authority from the canonical branch.
 
 ## Accepted released Core authority
 For the currently accepted v5.1.0 product, use:

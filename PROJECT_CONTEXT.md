@@ -8,7 +8,7 @@ NekoProxyCore is the low-level Windows Core/driver/runtime layer used by Neko Fa
 ## Canonical repository state
 - Repository: `Valeneko-pranmong/NekoProxyCore`
 - Canonical branch: `main`
-- Current `origin/main` at cleanup: `77b849f660a6ce923715eb5254594e4d0ee99ec3`
+- Canonical `main` advances independently from the accepted v5.1.0 stable authority; verify live `origin/main` before work.
 
 ## Accepted v5.1.0 source authority
 The currently accepted released Core source is intentionally preserved separately from canonical `main`:
