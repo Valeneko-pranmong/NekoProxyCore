@@ -35,7 +35,7 @@ Direct Core execution waits on control authorization. No cached permit, offline 
 Compact JWT. Required header:
 
 ```json
-{"alg":"RS256","typ":"neko-launch+jwt","kid":"neko-prod-key-2"}
+{"alg":"RS256","typ":"neko-launch+jwt","kid":"neko-prod-key-3"}
 ```
 
 Required claims:
@@ -54,10 +54,10 @@ exp = iat + 30
 
 `nbf` optional. If present, integer and equal to `iat`.
 
-Core pins exact KID `neko-prod-key-2`. Bundled authority is RSA 3072-bit with SPKI SHA-256:
+Core pins exact KID `neko-prod-key-3`. Bundled authority is RSA 3072-bit with SPKI SHA-256:
 
 ```text
-4a0ef40a483c6a4f294724ea62d0ae55357176e196c9747defec06769a0d0801
+d582e35b2ed151128082eac9e67e9caf18b478b89d244511bc62a55b578d66cb
 ```
 
 RSA verification uses platform `.NET RSA.VerifyData` with SHA-256 and PKCS#1 v1.5 padding. No manual RSA primitive. No fallback key. Private signing key never appears in Core.

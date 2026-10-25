@@ -325,7 +325,7 @@ public sealed class AuthorizationDiagnosticTests
 
     private sealed class PermitFixture : IDisposable
     {
-        private const string KeyId = "neko-prod-key-2";
+        private const string KeyId = "neko-prod-key-3";
         private readonly RSA _signer;
         private readonly RsaTrustedPublicKey _trustedKey;
         private readonly ITrustedPublicKeyResolver _resolver;

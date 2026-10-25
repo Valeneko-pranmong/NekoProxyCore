@@ -7,7 +7,7 @@ namespace NekoProxyCore.Core;
 /// </summary>
 public static class ProductionAuthorizationComposition
 {
-    public const string ProductionKeyId = "neko-prod-key-2";
+    public const string ProductionKeyId = "neko-prod-key-3";
     public const string ContractId = "NEKO-AUTH-LITE";
     public const string ContractRevision = "lite-v1";
     public const string ContractPackageSha256 = "";

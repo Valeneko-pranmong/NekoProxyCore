@@ -14,7 +14,7 @@ namespace Tests;
 public sealed class StrictLaunchPermitVerifierTests
 {
     private const long Now = 2_000_000_001;
-    private const string Kid = "neko-prod-key-2";
+    private const string Kid = "neko-prod-key-3";
     private const string Challenge = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     private const string Sentinel = "SENTINEL_PROXY_SECRET_42";
 

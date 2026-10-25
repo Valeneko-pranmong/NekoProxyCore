@@ -14,7 +14,7 @@ namespace Tests;
 public sealed class LiteVerifierSecurityCoverageTests
 {
     private const long Now = 2_000_000_001;
-    private const string Kid = "neko-prod-key-2";
+    private const string Kid = "neko-prod-key-3";
     private const string Challenge = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
     [DataTestMethod]
@@ -92,7 +92,7 @@ public sealed class LiteVerifierSecurityCoverageTests
         using var fixture = PermitFixture.Create();
         var original = fixture.CreateCompactPermit().Split('.');
         var tamperedHeader = Base64Url(Encoding.UTF8.GetBytes(
-                                 "{\"alg\":\"RS256\",\"typ\":\"neko-launch+jwt\",\"kid\":\"neko-prod-key-2\",\"x\":true}")) +
+                                 "{\"alg\":\"RS256\",\"typ\":\"neko-launch+jwt\",\"kid\":\"neko-prod-key-3\",\"x\":true}")) +
                              "." + original[1] + "." + original[2];
         var tamperedPayload = original[0] + "." +
                               Base64Url(Encoding.UTF8.GetBytes("{\"iss\":\"neko-backend\"}")) +

@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Security
+- Rotated the production launch-permit trust anchor to `neko-prod-key-3` (RSA 3072, SPKI SHA-256 `d582e35b2ed151128082eac9e67e9caf18b478b89d244511bc62a55b578d66cb`). Core now pins the new key; the retired `neko-prod-key-2` private key was lost and can no longer sign permits.
 - Permit verification now tolerates a bounded wall-clock disagreement of up to 10 minutes when the one-use Core challenge is fresh, instead of rejecting every permit when a user's clock is off by minutes. Healthy clocks keep the exact 2-second/30-second checks; skew beyond 10 minutes still fails closed. Added sanitized `AUTH_CLOCK_SKEW_TOLERATED` / `AUTH_CLOCK_SKEW_EXCEEDED` diagnostics.
 - Reject negative signed `iat` values before time arithmetic.
 
