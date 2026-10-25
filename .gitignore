@@ -18,3 +18,4 @@
 /tools/*.pem
 **/runtime-settings.key
 **/runtime-settings.nkps
+/.tmp.driveupload
