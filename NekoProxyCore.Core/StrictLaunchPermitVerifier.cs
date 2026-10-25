@@ -80,6 +80,10 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
     private const int MaximumPermitLength = 4096;
     private const long LifetimeSeconds = 30;
     private const long ClockSkewSeconds = 2;
+    // Real user clocks can be minutes off. Beyond the precision window, the
+    // already-consumed one-use challenge remains the freshness authority, but
+    // the accepted wall-clock disagreement stays bounded.
+    private const long MaximumClockSkewSeconds = 600;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly HashSet<string> HeaderNames = new(StringComparer.Ordinal) { "alg", "typ", "kid" };
     private static readonly HashSet<string> ClaimNames = new(StringComparer.Ordinal)
@@ -232,6 +236,7 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
             configVersion is < 1 or > RuntimeProxyConfig.MaxSafeInteger ||
             !TryGetString(claims, "runtime_config_sha256", out var configDigest) ||
             !IsLowercaseSha256(configDigest) ||
+            issuedAt < 0 ||
             issuedAt > long.MaxValue - LifetimeSeconds ||
             expiresAt != issuedAt + LifetimeSeconds)
         {
@@ -276,14 +281,38 @@ public sealed class StrictLaunchPermitVerifier : IPermitVerifier
         }
         ReportCompleted(currentStage);
 
-        if (issuedAt > now + ClockSkewSeconds ||
-            notBefore > now + ClockSkewSeconds ||
-            expiresAt <= now - ClockSkewSeconds)
+        var skewTolerated = false;
+        var permitSkewSeconds = Math.Abs(issuedAt - now);
+        if (permitSkewSeconds > MaximumClockSkewSeconds)
+        {
+            Report(currentStage, CoreDiagnosticCategory.AuthClockSkewExceeded);
             return Error(ProxyErrorCode.AuthorizationExpired, "Online authorization expired.");
+        }
+        if (permitSkewSeconds > ClockSkewSeconds)
+        {
+            Report(currentStage, CoreDiagnosticCategory.AuthClockSkewTolerated);
+            skewTolerated = true;
+        }
+        else if (expiresAt <= now - ClockSkewSeconds)
+        {
+            return Error(ProxyErrorCode.AuthorizationExpired, "Online authorization expired.");
+        }
 
-        if (runtimeConfig.IssuedAt > now + ClockSkewSeconds ||
-            runtimeConfig.ExpiresAt <= now - ClockSkewSeconds)
+        var configSkewSeconds = Math.Abs(runtimeConfig.IssuedAt - now);
+        if (configSkewSeconds > MaximumClockSkewSeconds)
+        {
+            Report(currentStage, CoreDiagnosticCategory.AuthClockSkewExceeded);
             return Error(ProxyErrorCode.AuthorizationExpired, "Online authorization expired.");
+        }
+        if (configSkewSeconds > ClockSkewSeconds)
+        {
+            if (!skewTolerated)
+                Report(currentStage, CoreDiagnosticCategory.AuthClockSkewTolerated);
+        }
+        else if (runtimeConfig.ExpiresAt <= now - ClockSkewSeconds)
+        {
+            return Error(ProxyErrorCode.AuthorizationExpired, "Online authorization expired.");
+        }
 
         if (configVersion != runtimeConfig.ConfigVersion || !ConfigDigestMatches(runtimeConfig, configDigest))
             return Invalid();

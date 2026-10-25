@@ -208,10 +208,41 @@ public sealed class AuthorizationDiagnosticTests
         Assert.IsNull(retiredBindingClaims);
 
         var expired = await fixture.CreateVerifier(
-                clock: new FixedClock(DateTimeOffset.FromUnixTimeSeconds(Now + 31)))
+                clock: new FixedClock(DateTimeOffset.FromUnixTimeSeconds(Now + 601)))
             .VerifyAsync(
                 fixture.CreatePermit(), Challenge, fixture.RuntimeConfig, CancellationToken.None);
         Assert.AreEqual(ProxyErrorCode.AuthorizationExpired, expired!.Code);
+    }
+
+    [TestMethod]
+    public async Task ClockSkewDiagnosticsDistinguishToleratedAndExceeded()
+    {
+        using var fixture = PermitFixture.Create();
+        using var writer = new StringWriter();
+        var diagnostics = new SanitizedTextCoreDiagnosticSink(writer);
+
+        var tolerated = fixture.CreateVerifier(
+            clock: new FixedClock(DateTimeOffset.FromUnixTimeSeconds(Now - 300)),
+            diagnostics: diagnostics);
+        var toleratedError = await tolerated.VerifyAsync(
+            fixture.CreatePermit(new() { ["jti"] = "skew-tolerated-jti" }),
+            Challenge,
+            fixture.RuntimeConfig,
+            CancellationToken.None);
+        Assert.IsNull(toleratedError);
+
+        var exceeded = fixture.CreateVerifier(
+            clock: new FixedClock(DateTimeOffset.FromUnixTimeSeconds(Now + 601)),
+            diagnostics: diagnostics);
+        var exceededError = await exceeded.VerifyAsync(
+            fixture.CreatePermit(new() { ["jti"] = "skew-exceeded-jti" }),
+            Challenge,
+            fixture.RuntimeConfig,
+            CancellationToken.None);
+        Assert.AreEqual(ProxyErrorCode.AuthorizationExpired, exceededError!.Code);
+
+        StringAssert.Contains(writer.ToString(), "stage=CLOCK_VALIDATE category=AUTH_CLOCK_SKEW_TOLERATED");
+        StringAssert.Contains(writer.ToString(), "stage=CLOCK_VALIDATE category=AUTH_CLOCK_SKEW_EXCEEDED");
     }
 
     [TestMethod]

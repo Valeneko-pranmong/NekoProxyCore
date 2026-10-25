@@ -10,9 +10,9 @@ NekoProxyCore is a transparent proxy routing and traffic redirection core design
 - **Stable Source Parent**: `6ab94bb8fde80a5c675b39b6884c6d31db218dad`
 - **Target Platform**: Windows x64 (.NET 6.0.428 SDK/Runtime)
 - **Automated Test Coverage**:
-  - `Tests/Tests.csproj`: 342 / 342 tests passing (100%)
-  - `Tests.Windows/Tests.Windows.csproj`: 94 / 94 tests passing (100%)
-  - Combined suite: 436 / 436 verified tests passing
+  - `Tests/Tests.csproj`: 344 / 344 tests passing (100%)
+  - `Tests.Windows/Tests.Windows.csproj`: not rerun in this environment (requires native Redirector/nfapi artifacts)
+  - Managed suite verified on Windows x64 with .NET 6.0.428
 
 ---
 
@@ -40,14 +40,14 @@ flowchart TD
 - **`NekoProxyCore.Windows/`**: Windows process integration and resolution.
 - **`NekoProxyCore.Legacy/`**: Adapter into inherited Netch ProcessMode and network engine.
 - **`Netch/`**: Inherited legacy Netch engine used by the adapter.
-- **`Tests/Tests.csproj`**: Main managed, security, and runtime test suite (342/342 tests passing).
-- **`Tests.Windows/Tests.Windows.csproj`**: Windows process and runtime-injection test suite (94/94 tests passing).
+- **`Tests/Tests.csproj`**: Main managed, security, and runtime test suite (344/344 tests passing).
+- **`Tests.Windows/Tests.Windows.csproj`**: Windows process and runtime-injection test suite (requires native build artifacts; not rerun here).
 
 ---
 
 ## Security Principles
 
-- **Fail-Closed Authorization**: Fails closed on missing or invalid authorization. Permits are verified locally under public-key authority.
+- **Fail-Closed Authorization**: Fails closed on missing or invalid authorization. Permits are verified locally under public-key authority. A bounded 10-minute wall-clock disagreement is tolerated only while the fresh one-use challenge remains the freshness authority; larger skew fails closed.
 - **Local Process Binding**: Process communication is bound locally between Neko Family Launcher and NekoProxyCore.
 - **Authorized Start Contract**: Fresh authorized start contract delivers runtime configuration directly from Launcher for the active session.
 - **Ephemeral Runtime Configuration**: Settings and runtime proxy configurations are kept ephemeral in memory; plaintext proxy configuration is not persisted as a release mechanism.

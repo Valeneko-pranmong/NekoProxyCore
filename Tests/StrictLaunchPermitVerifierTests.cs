@@ -191,12 +191,12 @@ public sealed class StrictLaunchPermitVerifierTests
     public async Task ExpiredAndFuturePermitsUseAuthorizationExpired()
     {
         using var fixture = PermitFixture.Create();
-        var expired = fixture.CreateVerifier(new MutableTrustedClock(DateTimeOffset.FromUnixTimeSeconds(2_000_000_032)));
+        var expired = fixture.CreateVerifier(new MutableTrustedClock(DateTimeOffset.FromUnixTimeSeconds(Now + 601)));
         var futurePermit = fixture.CreatePermit(claimOverrides: new()
         {
-            ["iat"] = Now + 3,
-            ["nbf"] = Now + 3,
-            ["exp"] = Now + 33
+            ["iat"] = Now + 601,
+            ["nbf"] = Now + 601,
+            ["exp"] = Now + 631
         });
 
         var expiredError = await expired.VerifyAsync(
@@ -206,6 +206,28 @@ public sealed class StrictLaunchPermitVerifierTests
 
         Assert.AreEqual(ProxyErrorCode.AuthorizationExpired, expiredError!.Code);
         Assert.AreEqual(ProxyErrorCode.AuthorizationExpired, futureError!.Code);
+    }
+
+    [TestMethod]
+    public async Task FiveMinuteClockSkewIsToleratedWithinFreshChallengeBound()
+    {
+        using var fixture = PermitFixture.Create();
+        var slowClock = new MutableTrustedClock(DateTimeOffset.FromUnixTimeSeconds(Now - 300));
+        var fastClock = new MutableTrustedClock(DateTimeOffset.FromUnixTimeSeconds(Now + 300));
+
+        var slowError = await fixture.CreateVerifier(slowClock).VerifyAsync(
+            fixture.CreatePermit(new() { ["jti"] = "slow-clock-jti" }),
+            Challenge,
+            fixture.RuntimeConfig,
+            CancellationToken.None);
+        var fastError = await fixture.CreateVerifier(fastClock).VerifyAsync(
+            fixture.CreatePermit(new() { ["jti"] = "fast-clock-jti" }),
+            Challenge,
+            fixture.RuntimeConfig,
+            CancellationToken.None);
+
+        Assert.IsNull(slowError);
+        Assert.IsNull(fastError);
     }
 
     [TestMethod]
@@ -312,10 +334,10 @@ public sealed class StrictLaunchPermitVerifierTests
         var mismatch = await verifier.VerifyAsync(
             fixture.CreatePermit(new() { ["jti"] = "mismatch-jti", ["runtime_config_version"] = 19 }),
             Challenge, fixture.RuntimeConfig, CancellationToken.None);
-        var expiredConfig = fixture.CreateRuntimeConfig(issuedAt: Now - 123);
+        var expiredConfig = fixture.CreateRuntimeConfig(issuedAt: Now - 601);
         var expired = await verifier.VerifyAsync(
             fixture.CreatePermitForConfig(expiredConfig, "expired-config-jti"), Challenge, expiredConfig, CancellationToken.None);
-        var futureConfig = fixture.CreateRuntimeConfig(issuedAt: Now + 3);
+        var futureConfig = fixture.CreateRuntimeConfig(issuedAt: Now + 601);
         var future = await verifier.VerifyAsync(
             fixture.CreatePermitForConfig(futureConfig, "future-config-jti"), Challenge, futureConfig, CancellationToken.None);
 
@@ -375,8 +397,8 @@ public sealed class StrictLaunchPermitVerifierTests
     public async Task ExpiredAndFutureRuntimeConfigsUseAuthorizationExpired()
     {
         using var fixture = PermitFixture.Create();
-        var expired = fixture.CreateRuntimeConfig(issuedAt: Now - 123);
-        var future = fixture.CreateRuntimeConfig(issuedAt: Now + 3);
+        var expired = fixture.CreateRuntimeConfig(issuedAt: Now - 601);
+        var future = fixture.CreateRuntimeConfig(issuedAt: Now + 601);
         var expiredError = await fixture.CreateVerifier().VerifyAsync(
             fixture.CreatePermitForConfig(expired), Challenge, expired, CancellationToken.None);
         var futureError = await fixture.CreateVerifier().VerifyAsync(

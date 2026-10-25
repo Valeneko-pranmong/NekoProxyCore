@@ -62,7 +62,7 @@ Core pins exact KID `neko-prod-key-2`. Bundled authority is RSA 3072-bit with SP
 
 RSA verification uses platform `.NET RSA.VerifyData` with SHA-256 and PKCS#1 v1.5 padding. No manual RSA primitive. No fallback key. Private signing key never appears in Core.
 
-Lite lifetime uses trusted UTC clock and short skew policy. Compact structure, size, ASCII, duplicate fields, unknown fields, exact algorithm/type/KID, signature, claims, challenge, expiry, and replay all fail closed.
+Lite lifetime uses the trusted UTC wall clock. When the wall clock agrees with the signed `iat` within 2 seconds, the 30-second absolute lifetime is enforced exactly. When the disagreement is larger but no more than 10 minutes, Core treats the wall clock as unreliable for absolute expiry and relies on the already-consumed one-use challenge as the freshness authority; it emits `AUTH_CLOCK_SKEW_TOLERATED`. A disagreement above 10 minutes fails closed as `AuthorizationExpired` with `AUTH_CLOCK_SKEW_EXCEEDED`. This keeps common user clock errors from blocking a fresh, correctly bound permit without allowing an unbounded window. Compact structure, size, ASCII, duplicate fields, unknown fields, exact algorithm/type/KID, signature, claims, challenge, expiry, and replay otherwise fail closed.
 
 ## Challenge
 
