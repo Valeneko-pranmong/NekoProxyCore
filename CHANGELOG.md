@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Security
 - Permit verification now tolerates a bounded wall-clock disagreement of up to 10 minutes when the one-use Core challenge is fresh, instead of rejecting every permit when a user's clock is off by minutes. Healthy clocks keep the exact 2-second/30-second checks; skew beyond 10 minutes still fails closed. Added sanitized `AUTH_CLOCK_SKEW_TOLERATED` / `AUTH_CLOCK_SKEW_EXCEEDED` diagnostics.
 - Reject negative signed `iat` values before time arithmetic.
+- Production permit authority reconciled with the shipped 5.2.2 Core artifact: source now pins `neko-prod-key-3` (SPKI SHA-256 `d582e35b…66cb`) instead of the frozen 5.1.6 `neko-prod-key-2`. The bundled manifest and the composition allow-list match the artifact; key-2 is rejected by this line.
 
 ### Verification
 - Managed Core suite: 344 / 344 passing. `Tests.Windows` was not rerun in this environment because it requires native Redirector/nfapi artifacts.

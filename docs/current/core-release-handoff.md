@@ -36,10 +36,13 @@ To eliminate cross-repository ambiguity, Core development and release authority 
 
 ### NEKO-AUTH-LITE Contract (`lite-v1`):
 - Contract Authority: [`neko-auth-lite-core-contract.md`](neko-auth-lite-core-contract.md)
-- Production permit signing authority: `neko-prod-key-2`, RSA 3072-bit, SPKI SHA-256:
+- Production permit signing authority: `neko-prod-key-3`, RSA 3072-bit, SPKI SHA-256:
   ```text
-  4a0ef40a483c6a4f294724ea62d0ae55357176e196c9747defec06769a0d0801
+  d582e35b2ed151128082eac9e67e9caf18b478b89d244511bc62a55b578d66cb
   ```
+- `neko-prod-key-2` is the frozen legacy 5.1.6 authority. Its private key is lost; the
+  legacy Core binary keeps verifying it, while this source pins key-3 only. Never rebuild
+  the 5.1.6 Core from this line.
 - Core production start path remains strictly fail-closed:
   ```text
   HeadlessControlServer START
